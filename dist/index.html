@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Albers Studio</title>
+<style>
+  :root{ --paper:#dcd6c8; --ink:#1c1a17; --rule:rgba(28,26,23,.3); }
+  *{box-sizing:border-box}
+  body{ margin:0; background:var(--paper); color:var(--ink);
+    font:12px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif; letter-spacing:.05em; }
+  .app{ padding:clamp(12px,2vw,24px); display:flex; flex-direction:column; gap:10px; min-height:100vh; }
+  header{ display:flex; gap:16px; align-items:baseline; border-bottom:1px solid var(--rule); padding-bottom:8px; }
+  h1{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.26em; margin:0 }
+  .sub{ opacity:.6 }
+  .vtoggle{ margin-left:auto; display:flex; gap:0 }
+  .vtoggle button{ border:1px solid var(--ink); border-left-width:0; padding:5px 12px;
+    background:transparent; color:var(--ink); font:inherit; letter-spacing:.14em; cursor:pointer }
+  .vtoggle button:first-child{ border-left-width:1px }
+  .vtoggle button.on{ background:var(--ink); color:var(--paper) }
+  .vnote{ font-size:10px; opacity:.55; text-align:right }
+  .db{ opacity:.8 }
+  .cols3{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; flex:1 }
+  section{ display:flex; flex-direction:column; gap:8px; min-width:0 }
+  .plabel{ text-transform:uppercase; letter-spacing:.2em; font-size:9px; opacity:.55 }
+  .stage{ position:relative; background:#c9c1b0; padding:8px; min-height:200px; flex:0 0 auto;
+    display:flex; align-items:flex-start; justify-content:center;
+    box-shadow:0 1px 0 rgba(255,255,255,.45) inset }
+  .stage.grow{ flex:1 1 auto }
+  .stage canvas{ display:block; max-width:100%; height:auto; cursor:crosshair }
+  .stage.empty::after{ content:'drop an image'; position:absolute; inset:0; display:flex;
+    align-items:center; justify-content:center; opacity:.4; text-transform:uppercase;
+    letter-spacing:.18em; font-size:10px }
+  .bar{ display:flex; flex-wrap:wrap; gap:6px; align-items:center }
+  button,input[type=number]{ font:inherit; letter-spacing:.12em; text-transform:uppercase;
+    background:transparent; color:var(--ink); border:1px solid var(--ink); padding:5px 10px; cursor:pointer }
+  button:hover:not(:disabled){ background:var(--ink); color:var(--paper) }
+  button:disabled{ opacity:.3; cursor:default }
+  button.tiny{ padding:1px 6px; font-size:9px }
+  label{ display:flex; align-items:center; gap:6px; font-size:10px; text-transform:uppercase; opacity:.75 }
+  input[type=range]{ width:80px; accent-color:#1c1a17 }
+  input[type=number]{ width:60px; text-transform:none; cursor:text }
+  .readout{ font-size:10px; opacity:.75; border-top:1px solid var(--rule); padding-top:6px;
+    line-height:1.7; font-variant-numeric:tabular-nums }
+  .swatches{ display:flex; height:14px; margin:4px 0; max-width:280px }
+  .yline{ display:flex; align-items:center; gap:6px }
+  .yline i{ width:11px; height:11px; display:inline-block; border:1px solid rgba(0,0,0,.2) }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="bundle.js"></script>
+</body>
+</html>

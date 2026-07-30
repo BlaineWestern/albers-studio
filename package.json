@@ -1,0 +1,11 @@
+{
+  "name": "albers-studio",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Photograph to layered weave model to tapestry. V1/V1.2 archived renderers, V2 draft-based.",
+  "scripts": {
+    "build": "esbuild src/main.jsx --bundle --outfile=dist/bundle.js --jsx=automatic --minify",
+    "start": "node server.js"
+  },
+  "devDependencies": { "esbuild": "*", "react": "^18", "react-dom": "^18" }
+}

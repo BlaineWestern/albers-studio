@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+studio.db
+studio.db-journal
+studio.db-wal
+studio.db-shm
