@@ -40,7 +40,8 @@ Fingerprints extracted from those profiles steer generative weaves.
 
 See also: [`docs/generative-textile-methods.md`](docs/generative-textile-methods.md),
 [`docs/anni-albers-textile-profile.md`](docs/anni-albers-textile-profile.md),
-and [`docs/capability-map.csv`](docs/capability-map.csv) (feature gap plan vs AdaCAD / FabricGen analogues).
+[`docs/capability-map.csv`](docs/capability-map.csv) (capability gap map),
+and [`docs/capability-implementation-plan.md`](docs/capability-implementation-plan.md) (phased how-to plan).
 
 ## Photo transform API
 

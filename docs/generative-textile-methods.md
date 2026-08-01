@@ -129,4 +129,5 @@ This keeps faith with Albers: structure first, materials articulate, industry-ho
 - Anni Albers, *On Weaving* — structure/colour/tactility as distinct decisions  
 
 See also: [`anni-albers-textile-profile.md`](./anni-albers-textile-profile.md)  
-Implementation backlog (CSV): [`capability-map.csv`](./capability-map.csv)
+Capability map (CSV): [`capability-map.csv`](./capability-map.csv)  
+Implementation plan: [`capability-implementation-plan.md`](./capability-implementation-plan.md)
