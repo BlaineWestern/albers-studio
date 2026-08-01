@@ -21,7 +21,7 @@ import { join, extname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fingerprintConfig, blendFingerprints } from './src/pipeline/fingerprint.js';
 import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS } from './src/pipeline/generative.js';
-import { transformImage, TRANSFORM_DEFAULTS } from './src/pipeline/transform.js';
+import { transformImage, TRANSFORM_DEFAULTS, PHOTO_MODES } from './src/pipeline/transform.js';
 import { modelToConfig } from './src/pipeline/config.js';
 import { buildDraft } from './src/pipeline/structure.js';
 
@@ -105,13 +105,14 @@ createServer(async (req, res) => {
       return json(res, 201, { ok:true });
     }
 
-    // POST /api/transform — photograph → textile config
-    // body: { image:{w,h,data:base64|number[]}, quad?, flatten?, k?, cols?, seed?, name?, save? }
+    // POST /api/transform — photograph → textile config (photo modes; shared construction)
+    // body: { image, mode?, quad?, flatten?, k?, cols?, seed?, name?, save? }
     if (url.pathname === '/api/transform' && req.method === 'POST'){
       const body = await readBody(req);
       if (!body.image) return json(res, 400, { error: 'image payload required' });
       const result = transformImage({
         image: body.image,
+        mode: body.mode,
         quad: body.quad,
         flatten: body.flatten,
         k: body.k,
@@ -125,7 +126,7 @@ createServer(async (req, res) => {
       return json(res, 200, {
         config: result.config,
         transform: result.transform,
-        flat: result.flat
+        flat: { w: result.flat.w, h: result.flat.h }
       });
     }
     if (url.pathname === '/api/transform/defaults' && req.method === 'GET'){
@@ -133,12 +134,17 @@ createServer(async (req, res) => {
         tool: 'photo',
         route: '/photo',
         defaults: TRANSFORM_DEFAULTS,
+        photoModes: Object.fromEntries(
+          Object.entries(PHOTO_MODES).map(([id, m]) => [id, { label: m.label, note: m.note, flatten: m.flatten }])
+        ),
+        construction: 'shared constructTapestry (mode/tightness/roughness on client)',
         image: {
           w: 'pixels', h: 'pixels',
           data: 'base64 RGBA (w*h*4) or number[]',
           note: 'Client typically downscales max side ≤1500 before upload'
         },
-        quad: 'optional [[x,y]×4] TL,TR,BR,BL — default inset 5%'
+        quad: 'optional [[x,y]×4] TL,TR,BR,BL — default inset 5%',
+        mode: 'PHOTO_MODES key — faithful|poster|tapestry|structure|document'
       });
     }
 

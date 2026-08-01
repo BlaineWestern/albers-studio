@@ -1,18 +1,20 @@
 import React from 'react';
-import { WEAVE_MODES } from '../pipeline/render/weave.js';
+import { WEAVE_MODES } from '../pipeline/construct.js';
 import { modelToSvg } from '../pipeline/svg.js';
 import { renderDraftImage } from '../pipeline/render/v2.js';
 import { modelToConfig } from '../pipeline/config.js';
 import { API, download, imgToCanvas } from '../shared.js';
 
-/** Shared tapestry output: weave aesthetics + exports + optional profiles. */
+/** Shared tapestry stage — weave construction aesthetics + exports.
+   Used by Photo and Generate; both feed models into constructTapestry. */
 export function TapestryStage({
-  model, version, setVersion, renderers,
+  model,
   weaveMode, setWeaveMode, tightness, setTightness, roughness, setRoughness,
-  outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved
+  outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved,
+  constructionNote
 }){
   const savePng = () => download(
-    `tapestry-${version}-${weaveMode}.png`,
+    `tapestry-${weaveMode}.png`,
     outCvs.current.toDataURL('image/png'));
   const saveSvg = () => download('tapestry-layers.svg',
     'data:image/svg+xml,'+encodeURIComponent(modelToSvg(model)));
@@ -26,7 +28,7 @@ export function TapestryStage({
     const name = prompt('Profile name?', 'untitled tapestry');
     if (!name) return;
     const cfg = modelToConfig(model, {
-      name, renderer: version, weave: { mode: weaveMode, tightness, roughness }
+      name, weave: { mode: weaveMode, tightness, roughness }
     });
     try {
       await fetch(API+'/configs', { method:'POST',
@@ -40,38 +42,34 @@ export function TapestryStage({
 
   return (
     <section>
-      <div className="plabel">Tapestry — {version}{version==='V2' ? ' / '+weaveMode : ''}</div>
+      <div className="plabel">3 · Construction · {weaveMode}
+        {constructionNote ? ` · ${constructionNote}` : ''}</div>
       <div ref={outBox} className={'stage grow'+(model?'':' empty')}>
         {model && <canvas ref={outCvs}/>}
       </div>
-      {version === 'V2' && (
-        <div className="weave-controls">
-          <div className="vtoggle weave-modes">
-            {Object.entries(WEAVE_MODES).map(([id, m]) =>
-              <button key={id} className={id===weaveMode?'on':''}
-                      onClick={()=>setWeaveMode(id)} title={m.note}>{m.label}</button>)}
-          </div>
-          <div className="bar weave-sliders">
-            <label className="env-row tight-row">
-              <span>Tightness</span>
-              <input type="range" min="0.15" max="1" step="0.01" value={tightness}
-                     onChange={e=>setTightness(+e.target.value)}/>
-              <em>{tightness.toFixed(2)}</em>
-            </label>
-            <label className="env-row tight-row">
-              <span>Roughness</span>
-              <input type="range" min="0" max="1" step="0.01" value={roughness}
-                     onChange={e=>setRoughness(+e.target.value)}/>
-              <em>{roughness.toFixed(2)}</em>
-            </label>
-          </div>
+      <div className="weave-controls">
+        <div className="plabel">Weave appearance (shared pipeline)</div>
+        <div className="vtoggle weave-modes">
+          {Object.entries(WEAVE_MODES).map(([id, m]) =>
+            <button key={id} className={id===weaveMode?'on':''}
+                    onClick={()=>setWeaveMode(id)} title={m.note}>{m.label}</button>)}
         </div>
-      )}
+        <div className="bar weave-sliders">
+          <label className="env-row tight-row">
+            <span>Tightness</span>
+            <input type="range" min="0.15" max="1" step="0.01" value={tightness}
+                   onChange={e=>setTightness(+e.target.value)}/>
+            <em>{tightness.toFixed(2)}</em>
+          </label>
+          <label className="env-row tight-row">
+            <span>Roughness</span>
+            <input type="range" min="0" max="1" step="0.01" value={roughness}
+                   onChange={e=>setRoughness(+e.target.value)}/>
+            <em>{roughness.toFixed(2)}</em>
+          </label>
+        </div>
+      </div>
       <div className="bar">
-        <div className="vtoggle">
-          {Object.keys(renderers).map(v =>
-            <button key={v} className={v===version?'on':''} onClick={()=>setVersion(v)}>{v}</button>)}
-        </div>
         <button disabled={!model} onClick={savePng}>PNG</button>
         <button disabled={!model} onClick={saveSvg}>SVG</button>
         <button disabled={!model || !model.draft} onClick={saveDraft}>Draft</button>
@@ -98,8 +96,8 @@ export function ToolChrome({ tool, note, dbUp, children }){
       <header>
         <h1>Albers Studio</h1>
         <span className="sub">{tool === 'photo'
-          ? 'photograph → layered weave model → tapestry'
-          : 'environment + rug style → generative tapestry'}</span>
+          ? 'photograph → photo modes → shared construction'
+          : 'environment + rug style → shared construction'}</span>
         <nav className="vtoggle modes">
           <a className={tool==='photo'?'on':''} href="/photo">Photo</a>
           <a className={tool==='generate'?'on':''} href="/generate">Generate</a>

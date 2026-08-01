@@ -22,16 +22,17 @@ To rebuild after editing source: `npm install && npm run build`.
 ## Layers
 
     photograph                          (/photo · /api/transform)
-      └─ geometry   corner quad → homography flatten, pitch estimation
-      └─ palette    Oklab over-clustering, k most-distinct yarns, roles
-      └─ cells      indexmap: one yarn per thread crossing (mark-bias vote)
-      └─ structure  per-role weave structures → binary draft (jacquard-style)
-      └─ render     V1 / V1.2 (archived) · V2 weave aesthetics
+      └─ photo mode  faithful | poster | tapestry | structure | document
+      └─ geometry · palette · cells · structure → weave model
+      └─ constructTapestry  (shared) Flat|Tile|Ribbon|Cord|Handloom
 
     environment + rug fingerprint       (/generate · /api/generate)
       └─ DesignSpec  named params from env + style prior
       └─ indexmap · validated draft · appearance plan
-      └─ same model / render / export path
+      └─ constructTapestry  (same pipeline)
+
+Photo modes change how the image is *read* into a model. Generate builds a
+model from DesignSpec. Both share `constructTapestry` for pixels.
 
 Renderers only see the model — never the photograph. A saved profile
 (config JSON in SQLite) re-renders bit-identically without the source image.
@@ -42,8 +43,10 @@ and [`docs/anni-albers-textile-profile.md`](docs/anni-albers-textile-profile.md)
 
 ## Photo transform API
 
-`POST /api/transform` — `{ image:{w,h,data:base64RGBA}, quad?, flatten?, k?, cols?, save? }` → config  
-`GET /api/transform/defaults` — schema docs
+`POST /api/transform` — `{ image:{w,h,data:base64RGBA}, mode?, quad?, flatten?, k?, cols?, save? }` → config  
+`GET /api/transform/defaults` — schema + `photoModes` docs
+
+Photo modes: **faithful** · **poster** · **tapestry** · **structure** · **document**.
 
 ## Generative / environment API
 

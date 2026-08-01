@@ -2,27 +2,18 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { warpQuad, quadAspect } from '../pipeline/geometry.js';
 import { configToModel } from '../pipeline/config.js';
 import { fidelity } from '../pipeline/analyze.js';
-import { renderV1 } from '../pipeline/render/v1.js';
-import { renderV12 } from '../pipeline/render/v12.js';
-import { renderV2 } from '../pipeline/render/v2.js';
-import { WEAVE_MODES, WEAVE_DEFAULTS } from '../pipeline/render/weave.js';
-import { transformImage, defaultQuad } from '../pipeline/transform.js';
+import { constructTapestry, WEAVE_MODES, WEAVE_DEFAULTS } from '../pipeline/construct.js';
+import { transformImage, defaultQuad, PHOTO_MODES, TRANSFORM_DEFAULTS } from '../pipeline/transform.js';
 import { TapestryStage, ToolChrome } from '../components/TapestryStage.jsx';
 import { API, attachDraft, imgToCanvas } from '../shared.js';
 
-const RENDERERS = {
-  'V1':   { fn: renderV1,  note: 'archived — fat-cell original' },
-  'V1.2': { fn: renderV12, note: 'archived — two-scale floats' },
-  'V2':   { fn: renderV2,  note: 'draft-based weave aesthetics' },
-};
-
-/** Dedicated photograph → textile tool (/photo, POST /api/transform). */
+/** Photograph → textile. Own PHOTO_MODES; shared constructTapestry for pixels. */
 export function PhotoTool(){
   const [src, setSrc] = useState(null);
   const [quad, setQuad] = useState(null);
   const [flat, setFlat] = useState(null);
   const [model, setModel] = useState(null);
-  const [version, setVersion] = useState('V2');
+  const [photoMode, setPhotoMode] = useState(TRANSFORM_DEFAULTS.mode);
   const [weaveMode, setWeaveMode] = useState(WEAVE_DEFAULTS.mode);
   const [tightness, setTightness] = useState(0.88);
   const [roughness, setRoughness] = useState(0.25);
@@ -79,59 +70,55 @@ export function PhotoTool(){
             (e.clientY-b.top)*(srcCvs.current.height/b.height)];
   };
 
-  const doFlatten = () => {
-    const ar = quadAspect(quad);
-    const long = 1100;
-    const w = ar>=1?long:Math.round(long*ar), h = ar>=1?Math.round(long/ar):long;
-    setFlat(warpQuad(src, quad, w, h));
-    setModel(null); setFid(null);
+  const applyResult = (result) => {
+    setModel(result.model);
+    if (result.flat?.data) setFlat(result.flat);
+    else if (src && PHOTO_MODES[photoMode]?.flatten !== false){
+      const ar = quadAspect(quad);
+      const long = 1100;
+      const fw = ar>=1?long:Math.round(long*ar), fh = ar>=1?Math.round(long/ar):long;
+      setFlat(warpQuad(src, quad, fw, fh));
+    } else setFlat(src);
+    setFid(null);
   };
 
   const doProcessLocal = useCallback(() => {
     if (!src) return;
     setBusy('weaving…');
     setTimeout(() => {
-      const result = transformImage({
-        image: src, quad, flatten: true, k, cols: cols || undefined
-      });
-      const ar = quadAspect(quad);
-      const long = 1100;
-      const fw = ar>=1?long:Math.round(long*ar), fh = ar>=1?Math.round(long/ar):long;
-      setFlat(warpQuad(src, quad, fw, fh));
-      setModel(result.model);
+      applyResult(transformImage({
+        image: src, quad, mode: photoMode, k, cols: cols || undefined
+      }));
       setBusy('');
     }, 20);
-  }, [src, quad, k, cols]);
+  }, [src, quad, photoMode, k, cols]);
 
   const doProcessApi = async () => {
     if (!src) return;
     setBusy('transforming…');
     try {
-      // base64 RGBA for /api/transform
       let binary = '';
       const bytes = src.data;
       const chunk = 0x8000;
       for (let i = 0; i < bytes.length; i += chunk)
         binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-      const b64 = btoa(binary);
       const r = await fetch(API+'/transform', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          image: { w: src.w, h: src.h, data: b64 },
-          quad, flatten: true, k, cols: cols || undefined, name: 'photo-transform'
+          image: { w: src.w, h: src.h, data: btoa(binary) },
+          quad, mode: photoMode, k, cols: cols || undefined, name: 'photo-transform'
         })
       });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error || 'transform failed');
       const m = attachDraft(configToModel(body.config));
+      const local = transformImage({
+        image: src, quad, mode: photoMode, k, cols: cols || undefined
+      });
       setModel(m);
-      const ar = quadAspect(quad);
-      const long = 1100;
-      const fw = ar>=1?long:Math.round(long*ar), fh = ar>=1?Math.round(long/ar):long;
-      setFlat(warpQuad(src, quad, fw, fh));
+      setFlat(local.flat?.data ? local.flat : src);
       setFid(null);
-    } catch (e){
-      // fall back to local pipeline
+    } catch {
       doProcessLocal();
       return;
     }
@@ -143,15 +130,16 @@ export function PhotoTool(){
     else doProcessLocal();
   };
 
+  // Shared construction pipeline (same as Generate)
   const render = useCallback(() => {
     if (!model || !outCvs.current || !outBox.current) return;
     const wpx = Math.max(200, outBox.current.getBoundingClientRect().width - 4);
-    const weaveOpts = version === 'V2'
-      ? { mode: weaveMode, tightness, roughness, seed: 11 } : {};
-    const out = RENDERERS[version].fn(model, { targetW: wpx, ...weaveOpts });
+    const out = constructTapestry(model, {
+      renderer: 'V2', mode: weaveMode, tightness, roughness, seed: 11, targetW: wpx
+    });
     imgToCanvas(out, outCvs.current);
     if (flat?.data) setFid(fidelity(flat, out));
-  }, [model, version, flat, weaveMode, tightness, roughness]);
+  }, [model, flat, weaveMode, tightness, roughness]);
 
   useEffect(render, [render]);
   useEffect(() => {
@@ -160,6 +148,12 @@ export function PhotoTool(){
     ro.observe(outBox.current);
     return () => ro.disconnect();
   }, [render]);
+
+  // Re-run transform when photo mode changes and we already have a source
+  useEffect(() => {
+    if (src && model) doProcessLocal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoMode]);
 
   const refresh = useCallback(async () => {
     try { const r = await fetch(API+'/configs'); setProfiles(await r.json()); setDbUp(true); }
@@ -170,8 +164,8 @@ export function PhotoTool(){
   const loadProfile = async (id) => {
     const r = await fetch(`${API}/configs/${id}`);
     const cfg = await r.json();
-    const m = attachDraft(configToModel(cfg.json ? JSON.parse(cfg.json) : cfg));
-    setModel(m); setFlat(null); setFid(null);
+    setModel(attachDraft(configToModel(cfg.json ? JSON.parse(cfg.json) : cfg)));
+    setFlat(null); setFid(null);
   };
 
   const yarnBar = model && (
@@ -181,7 +175,7 @@ export function PhotoTool(){
 
   return (
     <ToolChrome tool="photo"
-      note={version==='V2' ? (WEAVE_MODES[weaveMode]?.note || RENDERERS.V2.note) : RENDERERS[version].note}
+      note={PHOTO_MODES[photoMode]?.note + ' · construct: ' + (WEAVE_MODES[weaveMode]?.label || 'tile')}
       dbUp={dbUp}>
       <div className="cols3">
         <section>
@@ -202,7 +196,12 @@ export function PhotoTool(){
             <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
                    onChange={e=>loadFile(e.target.files[0])}/>
             <button onClick={()=>fileRef.current.click()}>Open image</button>
-            <button disabled={!src} onClick={doFlatten}>Flatten</button>
+          </div>
+          <div className="plabel" style={{marginTop:8}}>Photo mode</div>
+          <div className="vtoggle weave-modes" style={{marginLeft:0, flexWrap:'wrap'}}>
+            {Object.entries(PHOTO_MODES).map(([id, m]) =>
+              <button key={id} className={id===photoMode?'on':''}
+                      onClick={()=>setPhotoMode(id)} title={m.note}>{m.label}</button>)}
           </div>
         </section>
 
@@ -222,9 +221,10 @@ export function PhotoTool(){
             <button disabled={!src} onClick={doProcess}>{busy||'Transform'}</button>
           </div>
           {model && <div className="readout">
+            mode {photoMode}
             {model.geometry.pitch.confX >= 0.04
-              ? <>measured pitch {model.geometry.pitch.pitchX.toFixed(1)}px → {model.geometry.cols} threads<br/></>
-              : <>no confident pitch — {model.geometry.cols} threads<br/></>}
+              ? <> · pitch {model.geometry.pitch.pitchX.toFixed(1)}px → {model.geometry.cols} threads<br/></>
+              : <> · {model.geometry.cols} threads<br/></>}
             {model.geometry.cols}×{model.geometry.rows} · weft/warp {model.geometry.wefted.toFixed(2)}
             {yarnBar}
             {model.palette.map((y,i) =>
@@ -235,13 +235,14 @@ export function PhotoTool(){
         </section>
 
         <TapestryStage
-          model={model} version={version} setVersion={setVersion} renderers={RENDERERS}
+          model={model}
           weaveMode={weaveMode} setWeaveMode={setWeaveMode}
           tightness={tightness} setTightness={setTightness}
           roughness={roughness} setRoughness={setRoughness}
           outCvs={outCvs} outBox={outBox} fid={fid}
           profiles={profiles} onLoadProfile={loadProfile} showProfiles
-          onSaved={refresh}/>
+          onSaved={refresh}
+          constructionNote="shared constructTapestry"/>
       </div>
     </ToolChrome>
   );

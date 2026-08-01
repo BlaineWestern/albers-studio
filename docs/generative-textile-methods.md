@@ -78,13 +78,17 @@ DesignSpec  (named parameters — the AdaCAD-like dataflow surface)
 Materialize (three layers)
   ├─ 1. indexmap     macro colour / yarn assignment
   ├─ 2. draft        binary lift plan from structures (validated)
-  └─ 3. render       weave aesthetic (tile/ribbon/cord/handloom) using appearancePlan
+  └─ 3. constructTapestry  shared weave aesthetic (tile/ribbon/cord/handloom) using appearancePlan
         ↓
 Outputs
   ├─ model + config profile (re-renderable without inputs)
   ├─ draft PNG / SVG layers
   └─ provenance     env, style name, seed, DesignSpec snapshot
 ```
+
+Photo uses the same construction step after its own **PHOTO_MODES** analysis path
+(`faithful` · `poster` · `tapestry` · `structure` · `document`). Modes change how
+the photograph becomes a model; `constructTapestry` is shared.
 
 ### Input → parameter map (current)
 
@@ -108,7 +112,7 @@ Outputs
 
 ## What Generate mode is *for*
 
-Future product framing: Generate is the mode that turns **external inputs + rug style** into a **textile design** (model, draft, exports). Photo mode remains the path that *analyses* an existing cloth. Weave aesthetics (tightness, handloom roughness) are the appearance layer shared by both once a model exists.
+Future product framing: Generate is the mode that turns **external inputs + rug style** into a **textile design** (model, draft, exports). Photo remains the path that *analyses* an existing cloth via its own photo modes. Both feed **`constructTapestry`** — weave aesthetics (tightness, handloom roughness) are the shared appearance layer once a model exists.
 
 This keeps faith with Albers: structure first, materials articulate, industry-honest drafts — with environmental or other data acting as the parametric driver, not as a texture pasted on.
 

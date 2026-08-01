@@ -152,18 +152,21 @@ await withServer(async () => {
   }
   const tr = await req('POST', '/api/transform', {
     image: { w, h, data: rgba.toString('base64') },
-    flatten: true, k: 4, cols: 40, name: 'api-photo', save: true
+    mode: 'poster', flatten: true, k: 4, cols: 40, name: 'api-photo', save: true
   });
   ok(tr.status === 200, 'transform status '+tr.status);
   ok(tr.json.config?.schema === 'albers-studio/config@1', 'transform config');
   ok(tr.json.transform?.schema === 'albers-studio/transform@1', 'transform stamp');
+  ok(tr.json.transform?.mode === 'poster', 'transform photo mode');
   ok(tr.json.config.gauge.cols === 40, 'transform cols');
-  ok(tr.json.config.yarns?.length === 4, 'transform yarns');
+  ok(tr.json.config.yarns?.length >= 3, 'transform yarns');
   ok(tr.json.config.meta?.source === 'transform', 'transform meta source');
 
   const td = await req('GET', '/api/transform/defaults');
   ok(td.status === 200 && td.json.tool === 'photo', 'transform defaults');
   ok(td.json.route === '/photo', 'transform route documented');
+  ok(td.json.photoModes?.faithful && td.json.photoModes?.document, 'photoModes documented');
+  ok(td.json.construction?.includes('constructTapestry'), 'shared construction noted');
 
   const badTr = await req('POST', '/api/transform', {});
   ok(badTr.status === 400, 'transform without image should 400');

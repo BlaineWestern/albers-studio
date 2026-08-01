@@ -1,18 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { configToModel } from '../pipeline/config.js';
-import { renderV1 } from '../pipeline/render/v1.js';
-import { renderV12 } from '../pipeline/render/v12.js';
-import { renderV2 } from '../pipeline/render/v2.js';
-import { WEAVE_MODES, WEAVE_DEFAULTS } from '../pipeline/render/weave.js';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { constructTapestry, WEAVE_MODES, WEAVE_DEFAULTS } from '../pipeline/construct.js';
 import { generateFromEnv, ENV_DEFAULTS, defaultFingerprint } from '../pipeline/generative.js';
+import { configToModel } from '../pipeline/config.js';
 import { TapestryStage, ToolChrome } from '../components/TapestryStage.jsx';
 import { API, attachDraft, imgToCanvas } from '../shared.js';
-
-const RENDERERS = {
-  'V1':   { fn: renderV1,  note: 'archived — fat-cell original' },
-  'V1.2': { fn: renderV12, note: 'archived — two-scale floats' },
-  'V2':   { fn: renderV2,  note: 'draft-based weave aesthetics' },
-};
 
 const ENV_FIELDS = [
   { key:'temperature',   label:'Temp °C',   min:-5, max:35,  step:0.5 },
@@ -23,10 +14,9 @@ const ENV_FIELDS = [
   { key:'season',        label:'Season',    min:0,  max:1,   step:0.05 },
 ];
 
-/** Dedicated env + rug-style → generative textile tool (/generate, POST /api/generate). */
+/** Env + rug-style → generative textile. Shares constructTapestry with Photo. */
 export function GenerateTool(){
   const [model, setModel] = useState(null);
-  const [version, setVersion] = useState('V2');
   const [weaveMode, setWeaveMode] = useState(WEAVE_DEFAULTS.mode);
   const [tightness, setTightness] = useState(0.88);
   const [roughness, setRoughness] = useState(0.25);
@@ -86,7 +76,6 @@ export function GenerateTool(){
         if (info.appearance.tightness != null) setTightness(info.appearance.tightness);
         if (info.appearance.roughness != null) setRoughness(info.appearance.roughness);
       }
-      setVersion('V2');
     } catch (e){
       setBusy('');
       alert(e.message);
@@ -98,11 +87,11 @@ export function GenerateTool(){
   const render = useCallback(() => {
     if (!model || !outCvs.current || !outBox.current) return;
     const wpx = Math.max(200, outBox.current.getBoundingClientRect().width - 4);
-    const weaveOpts = version === 'V2'
-      ? { mode: weaveMode, tightness, roughness, seed: 11 } : {};
-    const out = RENDERERS[version].fn(model, { targetW: wpx, ...weaveOpts });
+    const out = constructTapestry(model, {
+      renderer: 'V2', mode: weaveMode, tightness, roughness, seed: 11, targetW: wpx
+    });
     imgToCanvas(out, outCvs.current);
-  }, [model, version, weaveMode, tightness, roughness]);
+  }, [model, weaveMode, tightness, roughness]);
 
   useEffect(render, [render]);
   useEffect(() => {
@@ -119,7 +108,9 @@ export function GenerateTool(){
 
   return (
     <ToolChrome tool="generate"
-      note={version==='V2' ? (WEAVE_MODES[weaveMode]?.note || RENDERERS.V2.note) : RENDERERS[version].note}
+      note={(genInfo?.designSpec
+        ? `DesignSpec · ${genInfo.designSpec.structurePlan?.field || 'twill'}`
+        : 'parametric DesignSpec') + ' · construct: ' + (WEAVE_MODES[weaveMode]?.label || 'tile')}
       dbUp={dbUp}>
       <div className="cols3">
         <section>
@@ -177,13 +168,14 @@ export function GenerateTool(){
         </section>
 
         <TapestryStage
-          model={model} version={version} setVersion={setVersion} renderers={RENDERERS}
+          model={model}
           weaveMode={weaveMode} setWeaveMode={setWeaveMode}
           tightness={tightness} setTightness={setTightness}
           roughness={roughness} setRoughness={setRoughness}
           outCvs={outCvs} outBox={outBox} fid={null}
           profiles={profiles} onLoadProfile={loadProfile} showProfiles={false}
-          onSaved={refresh}/>
+          onSaved={refresh}
+          constructionNote="shared constructTapestry"/>
       </div>
     </ToolChrome>
   );

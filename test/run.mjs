@@ -10,7 +10,8 @@ import { modelToSvg } from '../src/pipeline/svg.js';
 import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
 import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS, resolveDesignSpec } from '../src/pipeline/generative.js';
-import { transformImage, defaultQuad, decodeImagePayload } from '../src/pipeline/transform.js';
+import { transformImage, defaultQuad, decodeImagePayload, PHOTO_MODES, photoModeParams } from '../src/pipeline/transform.js';
+import { constructTapestry } from '../src/pipeline/construct.js';
 import { syntheticCloth } from './fixture.mjs';
 
 let fails = 0;
@@ -270,11 +271,12 @@ console.log('11c. photo transform pipeline (image → textile)');
 {
   const synImg = syntheticCloth({ pitch: 8, cols: 48, rows: 36, seed: 3 });
   const result = transformImage({
-    image: synImg.img, flatten: true, k: 5, cols: 60, name: 'syn-photo'
+    image: synImg.img, mode: 'faithful', flatten: true, k: 5, cols: 60, name: 'syn-photo'
   });
   ok(result.config.schema === 'albers-studio/config@1', 'transform config schema');
   ok(result.config.meta.source === 'transform', 'transform source meta');
   ok(result.transform.schema === 'albers-studio/transform@1', 'transform stamp');
+  ok(result.transform.mode === 'faithful', 'transform photo mode');
   ok(result.model.palette.length === 5, 'transform palette');
   ok(result.model.geometry.cols === 60, 'transform cols');
   ok(typeof result.model.draft === 'function', 'transform draft');
@@ -287,7 +289,25 @@ console.log('11c. photo transform pipeline (image → textile)');
   let threw = false;
   try { transformImage({}); } catch { threw = true; }
   ok(threw, 'transform without image should throw');
-  console.log(`   transform ${result.model.geometry.cols}x${result.model.geometry.rows}, k=${result.model.palette.length}`);
+
+  // photo modes exist and change analysis knobs
+  const modeIds = Object.keys(PHOTO_MODES);
+  ok(modeIds.length >= 5, 'photo modes present');
+  ok(PHOTO_MODES.document.flatten === false, 'document mode skips flatten');
+  const poster = photoModeParams('poster', { k: 6 });
+  ok(poster.modelParams.k === 4, 'poster kOffset -2');
+  ok(poster.modelParams.markBias > photoModeParams('faithful').modelParams.markBias, 'poster stronger markBias');
+  const doc = transformImage({ image: synImg.img, mode: 'document', k: 4, cols: 40 });
+  ok(doc.transform.mode === 'document' && doc.transform.flatten === false, 'document transform');
+  ok(doc.flat.w === synImg.img.w && doc.flat.h === synImg.img.h, 'document keeps source size');
+
+  // shared construction path
+  const built = constructTapestry(result.model, { mode: 'tile', tightness: 0.8, roughness: 0.2, targetW: 200, seed: 1 });
+  ok(built.w > 0 && built.h > 0, 'constructTapestry empty');
+  const built2 = constructTapestry(result.model, { mode: 'tile', tightness: 0.8, roughness: 0.2, targetW: 200, seed: 1 });
+  ok(Buffer.compare(Buffer.from(built.data), Buffer.from(built2.data)) === 0, 'constructTapestry deterministic');
+
+  console.log(`   transform ${result.model.geometry.cols}x${result.model.geometry.rows}, k=${result.model.palette.length}, modes=${modeIds.join('|')}`);
 }
 
 console.log('11. style transfer: fingerprint steers gauge & yarn count');
