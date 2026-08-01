@@ -277,10 +277,15 @@ function paintYarnStrip(img, x0, y0, w, h, rgb, p){
         shade = p.axis === 'h' ? (0.88 + 0.12 * (1 - v)) : (0.88 + 0.12 * (1 - u));
       }
 
-      // handloom tension noise along the yarn
+      // handloom: tension noise + multi-octave strand twist / hairiness
       if (rough > 0 && p.mode === 'handloom'){
         const along = p.axis === 'h' ? p.fx + u : p.fy + v;
+        const across = p.axis === 'h' ? v : u;
         shade += (slide1(p.seed, 33, along * 2) - 0.5) * rough * 0.22;
+        shade += (slide1(p.seed, 71, along * 5.3 + across * 2) - 0.5) * rough * 0.12;
+        // hair / ply flecks near edges
+        if (mask < 0.55)
+          shade += (slide1(p.seed, 19, along * 11) - 0.5) * rough * 0.18;
       }
 
       const a = clamp01(mask * dive);

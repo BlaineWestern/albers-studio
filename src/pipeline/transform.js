@@ -75,7 +75,7 @@ export function defaultQuad(w, h, inset = TRANSFORM_DEFAULTS.inset){
 function attachDraft(model, tp = 2){
   model.draft = () => buildDraft(
     model.cells.idx, model.geometry.cols, model.geometry.rows,
-    model.palette.map(y => y.role), model.structure.assign, tp);
+    model.palette.map(y => y.role), model.structure.assign, tp, { repair: true });
   return model;
 }
 

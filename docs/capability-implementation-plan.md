@@ -6,6 +6,20 @@ Goal: turn each unfinished map row into **working functionality** in Albers Stud
 **Status legend (map):** `done` · `partial` · `none`  
 **Phases:** 1 = AdaCAD-like draft surface · 2 = edit/export depth · 3 = research optional
 
+### Execution status (this branch)
+
+| Milestone | State |
+|-----------|--------|
+| M1 Structure honesty | **done** — 11 structures, `repairDraft`, validity on save |
+| M2 Draft dataflow | **done** — `draft-ops.js`, glitch op, DesignSpec.ops |
+| M3 Spec as product surface | **done** — `materializeFromDesignSpec`, inspector UI, provenance |
+| M4 Stronger priors | **done** — 8×8 `roleGrid` spatial bias |
+| M5 Authoring | **partial** — `reassignRegion` helper; no grid/brush UI yet |
+| M6 Interchange | **done** — WIF + lift JSON export/import API + UI |
+| M7 Appearance/QA | **partial** — richer handloom; golden images still open |
+
+Still open / deferred: L2-07 double-weave, L2-06 CA search, L3-05 learned shading, L4-04 diffusion, L6-02 goldens, full L2-08/L1-05 editors.
+
 ---
 
 ## Principles (do not violate)

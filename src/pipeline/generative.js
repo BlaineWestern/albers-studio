@@ -3,8 +3,9 @@
      Inputs → DesignSpec (named params) → indexmap | draft | appearance
    Colour and structure stay separate; drafts use known valid weave families. */
 import { mulberry32, nz, oklabToRgb, clamp01 } from './core.js';
-import { yarnRoles, markRuns, floatStats, buildDraft, DEFAULT_ASSIGN, validateDraft } from './structure.js';
+import { yarnRoles, markRuns, floatStats, buildDraft, DEFAULT_ASSIGN, STRUCTURES } from './structure.js';
 import { blendFingerprints } from './fingerprint.js';
+import { runDraftOps, defaultModulatorOps } from './draft-ops.js';
 
 /** Default env schema — all optional; missing keys use mid defaults. */
 export const ENV_DEFAULTS = {
@@ -61,7 +62,8 @@ export function defaultFingerprint(){
     spatial: {
       transitionRate: 0.22, vertCoherence: 0.62,
       meanRun: 3.4, p50Run: 2, p90Run: 8,
-      disorder: 0.28, groundShare: 0.55
+      disorder: 0.28, groundShare: 0.55,
+      roleGrid: null
     }
   };
 }
@@ -94,9 +96,12 @@ function envTintLab(lab, n){
   return [L, a, b];
 }
 
+function knownStructure(name, fallback){
+  return STRUCTURES[name] ? name : fallback;
+}
+
 /**
  * Parametric DesignSpec — AdaCAD-like surface between inputs and materialization.
- * Env readings modulate named knobs; the fingerprint supplies priors.
  */
 export function resolveDesignSpec(env, fingerprint, opts = {}){
   const n = normEnv(env);
@@ -108,19 +113,22 @@ export function resolveDesignSpec(env, fingerprint, opts = {}){
     opts.rows ?? fp.gauge.rows ?? Math.max(16, Math.round(cols * 0.75))));
 
   const base = { ...DEFAULT_ASSIGN, ...(fp.structures || {}) };
-  const structurePlan = { ...base };
-  // only known-valid structure families (never invent illegal lifts)
+  const structurePlan = {
+    ground: knownStructure(base.ground, 'plain'),
+    field: knownStructure(base.field, 'twill'),
+    supplementary: knownStructure(base.supplementary, 'weft5')
+  };
   if (n.windy > 0.55) structurePlan.field = n.wet > 0.4 ? 'basket' : 'twill';
   else if (n.lit > 0.7 && n.warm > 0.55) structurePlan.field = 'satin8';
-  else structurePlan.field = base.field || 'twill';
   if (n.wet > 0.45) structurePlan.supplementary = 'weft5';
   else if (n.humid < 0.35 && n.windy < 0.3) structurePlan.supplementary = 'satin8';
-  else structurePlan.supplementary = base.supplementary || 'weft5';
-  structurePlan.ground = base.ground || 'plain';
 
   const tightness = clamp01(0.92 - n.humid*0.25 - n.wet*0.2);
   const roughness = clamp01(0.12 + n.windy*0.55 + n.wet*0.15);
   const preferredMode = roughness > 0.45 ? 'handloom' : tightness < 0.7 ? 'ribbon' : 'tile';
+
+  const ops = Array.isArray(opts.ops) ? opts.ops.slice()
+    : defaultModulatorOps({ windy: n.windy, glitch: opts.glitch });
 
   return {
     schema: 'albers-studio/design-spec@1',
@@ -133,7 +141,7 @@ export function resolveDesignSpec(env, fingerprint, opts = {}){
       shares: fp.yarns.shares.slice(),
       mix: { ...fp.yarns.mix }
     },
-    structurePlan,
+    structurePlan: { ...structurePlan, ops },
     densityPlan: {
       markBoost: 1 + n.wet*1.4 + n.humid*0.3,
       fieldBoost: 1 + n.windy*0.5,
@@ -142,14 +150,64 @@ export function resolveDesignSpec(env, fingerprint, opts = {}){
         + (1 - (fp.spatial.vertCoherence || 0.6))*0.2,
       meanRun: Math.max(1.2, (fp.spatial.meanRun || 3) * (1 + n.humid*0.35)),
       minGround: Math.max(0.35, (fp.spatial.groundShare || 0.5) * (1 - n.wet*0.25)),
-      maxFloat: Math.max(6, Math.round(8 + n.wet*6 - n.windy*2))
+      maxFloat: Math.max(6, Math.round(8 + n.wet*6 - n.windy*2)),
+      roleGridBias: 0.35
     },
     appearancePlan: { tightness, roughness, mode: preferredMode },
     modulators: n,
     style: {
       name: fp.source?.name || 'default',
       fingerprintSchema: fp.schema || null
-    }
+    },
+    _fingerprint: fp
+  };
+}
+
+/** Normalize a client-edited DesignSpec (fill defaults, clamp). */
+export function normalizeDesignSpec(spec = {}, opts = {}){
+  const fp = opts.fingerprint || defaultFingerprint();
+  const seed = opts.seed ?? spec.seed ?? 1;
+  const cols = Math.max(24, Math.min(240, spec.gauge?.cols ?? fp.gauge.cols ?? 96));
+  const rows = Math.max(16, Math.min(240, spec.gauge?.rows ?? fp.gauge.rows ?? 72));
+  const wefted = spec.gauge?.wefted ?? fp.gauge.wefted ?? 0.86;
+  const roles = (spec.palettePlan?.roles || fp.yarns.roles).slice();
+  const labs = (spec.palettePlan?.labs || fp.yarns.labs).map(l => l.slice());
+  const shares = (spec.palettePlan?.shares || fp.yarns.shares).slice();
+  const sum = shares.reduce((a,b)=>a+b,0) || 1;
+  const structurePlan = {
+    ground: knownStructure(spec.structurePlan?.ground, 'plain'),
+    field: knownStructure(spec.structurePlan?.field, 'twill'),
+    supplementary: knownStructure(spec.structurePlan?.supplementary, 'weft5'),
+    ops: Array.isArray(spec.structurePlan?.ops) ? spec.structurePlan.ops.slice() : []
+  };
+  return {
+    schema: 'albers-studio/design-spec@1',
+    seed,
+    gauge: { cols, rows, wefted },
+    palettePlan: {
+      k: labs.length,
+      labs, roles, shares: shares.map(s => s/sum),
+      mix: spec.palettePlan?.mix || { ...fp.yarns.mix }
+    },
+    structurePlan,
+    densityPlan: {
+      markBoost: spec.densityPlan?.markBoost ?? 1,
+      fieldBoost: spec.densityPlan?.fieldBoost ?? 1,
+      disorder: spec.densityPlan?.disorder ?? (fp.spatial.disorder || 0.25),
+      vertBias: spec.densityPlan?.vertBias ?? 0.35,
+      meanRun: spec.densityPlan?.meanRun ?? (fp.spatial.meanRun || 3),
+      minGround: spec.densityPlan?.minGround ?? 0.45,
+      maxFloat: spec.densityPlan?.maxFloat ?? 8,
+      roleGridBias: spec.densityPlan?.roleGridBias ?? 0.35
+    },
+    appearancePlan: {
+      tightness: clamp01(spec.appearancePlan?.tightness ?? 0.88),
+      roughness: clamp01(spec.appearancePlan?.roughness ?? 0.25),
+      mode: spec.appearancePlan?.mode || 'tile'
+    },
+    modulators: spec.modulators || normEnv(ENV_DEFAULTS),
+    style: spec.style || { name: fp.source?.name || 'default', fingerprintSchema: fp.schema },
+    _fingerprint: fp
   };
 }
 
@@ -161,16 +219,24 @@ function pickGround(shares, roles){
   return best;
 }
 
+function sampleRoleGrid(fp, cols, rows, x, y){
+  const g = fp.spatial?.roleGrid;
+  if (!g?.w || !g?.h || !g?.data?.length) return -1;
+  const gx = Math.min(g.w - 1, Math.max(0, Math.floor(x / cols * g.w)));
+  const gy = Math.min(g.h - 1, Math.max(0, Math.floor(y / rows * g.h)));
+  return g.data[gy * g.w + gx] ?? -1;
+}
+
 /** Macro colour layer — yarn indexmap from DesignSpec density + fingerprint. */
 function generateIndexmap(fp, spec, cols, rows){
   const seed = spec.seed;
   const rnd = mulberry32(seed);
-  const k = fp.yarns.k;
-  const roles = (spec.palettePlan.roles || fp.yarns.roles).slice();
-  const shares = (spec.palettePlan.shares || fp.yarns.shares).slice();
+  const k = Math.min(fp.yarns.k, spec.palettePlan.labs.length);
+  const roles = (spec.palettePlan.roles || fp.yarns.roles).slice(0, k);
+  const shares = (spec.palettePlan.shares || fp.yarns.shares).slice(0, k);
   const ground = pickGround(shares, roles);
   const dens = spec.densityPlan;
-  const windy = spec.modulators.windy;
+  const windy = spec.modulators?.windy ?? 0;
 
   let adj = shares.map((s,i) => {
     if (roles[i] === 'supplementary') return s * dens.markBoost;
@@ -199,6 +265,7 @@ function generateIndexmap(fp, spec, cols, rows){
   const aniso = valueNoise2(rnd, cols, rows, freq*0.6, seed ^ 0x85ebca6b);
   const idx = new Uint8Array(cols * rows);
   const stick = clamp01(1 - 1/dens.meanRun);
+  const gridBias = clamp01(dens.roleGridBias ?? 0);
 
   for (let y = 0; y < rows; y++){
     let runV = ground, runLen = 0;
@@ -219,6 +286,9 @@ function generateIndexmap(fp, spec, cols, rows){
             if (u <= th){ chosen = i; break; }
           }
         }
+        const gridYarn = sampleRoleGrid(fp, cols, rows, x, y);
+        if (gridYarn >= 0 && gridYarn < k && rnd() < gridBias)
+          chosen = gridYarn;
         if (above >= 0 && rnd() < (fp.spatial.vertCoherence || 0.6) * (1 - windy*0.4)){
           if (roles[above] !== 'supplementary' || roles[chosen] === 'supplementary')
             chosen = above;
@@ -275,26 +345,43 @@ function generateIndexmap(fp, spec, cols, rows){
   return { idx, ground, roles, shares: adj };
 }
 
-/**
- * Generate a textile design model from inputs + style prior (no photograph).
- * @param {object} opts
- * @param {object} [opts.env]
- * @param {object|object[]} [opts.fingerprint]
- * @param {number} [opts.seed]
- * @param {number} [opts.cols]
- * @param {number} [opts.rows]
- */
-export function generateFromEnv(opts = {}){
-  let fp = opts.fingerprint;
-  if (Array.isArray(fp)) fp = fp.length ? blendFingerprints(fp) : defaultFingerprint();
-  if (!fp) fp = defaultFingerprint();
+function publicDesignSpec(spec){
+  return {
+    schema: spec.schema,
+    seed: spec.seed,
+    gauge: spec.gauge,
+    palettePlan: {
+      k: spec.palettePlan.k,
+      labs: spec.palettePlan.labs,
+      roles: spec.palettePlan.roles,
+      shares: spec.palettePlan.shares,
+      mix: spec.palettePlan.mix
+    },
+    structurePlan: {
+      ground: spec.structurePlan.ground,
+      field: spec.structurePlan.field,
+      supplementary: spec.structurePlan.supplementary,
+      ops: spec.structurePlan.ops || []
+    },
+    densityPlan: { ...spec.densityPlan },
+    appearancePlan: { ...spec.appearancePlan }
+  };
+}
 
-  const spec = resolveDesignSpec(opts.env, fp, opts);
+/**
+ * Materialize a weave model from an explicit DesignSpec (editable dataflow).
+ * @param {object} designSpec
+ * @param {object} [opts]
+ */
+export function materializeFromDesignSpec(designSpec, opts = {}){
+  const fp = opts.fingerprint || designSpec._fingerprint || defaultFingerprint();
+  const spec = normalizeDesignSpec(designSpec, { fingerprint: fp, seed: opts.seed ?? designSpec.seed });
   const { cols, rows: rowsFinal, wefted } = spec.gauge;
   const seed = spec.seed;
+  const tp = opts.tp ?? 2;
 
   const { idx, ground: paintedGround, roles } = generateIndexmap(fp, spec, cols, rowsFinal);
-  const tally = new Int32Array(fp.yarns.k);
+  const tally = new Int32Array(spec.palettePlan.labs.length);
   for (const v of idx) tally[v]++;
   let ground = paintedGround;
   if (tally[ground] < idx.length * 0.15){
@@ -314,39 +401,55 @@ export function generateFromEnv(opts = {}){
     palette[i].share = share[i] / idx.length;
   }
 
-  const assign = { ...spec.structurePlan };
+  const assign = {
+    ground: spec.structurePlan.ground,
+    field: spec.structurePlan.field,
+    supplementary: spec.structurePlan.supplementary
+  };
   const runs = markRuns(idx, cols, rowsFinal, liveRoles);
   const floats = floatStats(idx, cols, rowsFinal, palette.length);
-  const tp = opts.tp ?? 2;
-  const draftObj = buildDraft(idx, cols, rowsFinal, liveRoles, assign, tp);
-  const validity = validateDraft(draftObj.draft, draftObj.W, draftObj.H, {
-    maxFloat: spec.densityPlan.maxFloat * tp
+  const maxFloat = (spec.densityPlan.maxFloat || 8) * tp;
+
+  const baseDraft = buildDraft(idx, cols, rowsFinal, liveRoles, assign, tp, {
+    maxFloat, repair: true
   });
+  const ops = spec.structurePlan.ops || [];
+  const modulated = ops.length
+    ? runDraftOps({
+        draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
+        ops, seed, maxFloat, repair: true
+      })
+    : { draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
+        ops: [], validity: baseDraft.validity, repairs: baseDraft.repairs || 0 };
+
+  const validity = modulated.validity;
+  const draftCache = { draft: modulated.draft, W: modulated.W, H: modulated.H, tp };
+  const pubSpec = publicDesignSpec(spec);
 
   return {
     version: 'v2',
     generative: {
       schema: 'albers-studio/generative@1',
-      env: spec.modulators.raw,
+      env: spec.modulators?.raw || null,
       seed,
       style: spec.style.name,
       fingerprintSchema: spec.style.fingerprintSchema,
-      designSpec: {
-        structurePlan: spec.structurePlan,
-        densityPlan: spec.densityPlan,
-        appearancePlan: spec.appearancePlan,
-        gauge: spec.gauge
-      },
+      designSpec: pubSpec,
       provenance: {
         created: new Date().toISOString(),
-        inputs: { env: spec.modulators.raw, seed, style: spec.style.name },
+        tool: 'generate',
+        inputs: { env: spec.modulators?.raw || null, seed, style: spec.style.name },
+        designSpec: pubSpec,
         layers: ['design-spec', 'indexmap', 'draft', 'appearance'],
+        draftOps: modulated.ops,
         draftValidity: {
           ok: validity.ok,
           liftRatio: +validity.liftRatio.toFixed(3),
           flatRowsCols: validity.flatRowsCols,
-          floatViolations: validity.floatViolations
-        }
+          floatViolations: validity.floatViolations,
+          repairs: modulated.repairs || 0
+        },
+        appearance: spec.appearancePlan
       },
       appearance: spec.appearancePlan
     },
@@ -358,6 +461,18 @@ export function generateFromEnv(opts = {}){
     palette,
     cells: { idx, ground },
     structure: { assign, runs, floats, validity },
-    draft: () => buildDraft(idx, cols, rowsFinal, liveRoles, assign, tp)
+    draft: () => ({ ...draftCache, draft: draftCache.draft.slice() })
   };
+}
+
+/**
+ * Generate a textile design model from inputs + style prior (no photograph).
+ */
+export function generateFromEnv(opts = {}){
+  let fp = opts.fingerprint;
+  if (Array.isArray(fp)) fp = fp.length ? blendFingerprints(fp) : defaultFingerprint();
+  if (!fp) fp = defaultFingerprint();
+
+  const spec = resolveDesignSpec(opts.env, fp, opts);
+  return materializeFromDesignSpec(spec, { fingerprint: fp, seed: spec.seed, tp: opts.tp });
 }

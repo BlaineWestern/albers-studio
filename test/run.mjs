@@ -7,11 +7,14 @@ import { renderV12 } from '../src/pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from '../src/pipeline/render/v2.js';
 import { renderWeave, WEAVE_MODES, WEAVE_DEFAULTS } from '../src/pipeline/render/weave.js';
 import { modelToSvg } from '../src/pipeline/svg.js';
-import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft } from '../src/pipeline/structure.js';
+import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft, repairDraft, structureNames } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
-import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS, resolveDesignSpec } from '../src/pipeline/generative.js';
+import { generateFromEnv, materializeFromDesignSpec, defaultFingerprint, ENV_DEFAULTS, resolveDesignSpec } from '../src/pipeline/generative.js';
 import { transformImage, defaultQuad, decodeImagePayload, PHOTO_MODES, photoModeParams } from '../src/pipeline/transform.js';
 import { constructTapestry } from '../src/pipeline/construct.js';
+import { runDraftOps } from '../src/pipeline/draft-ops.js';
+import { draftToWif, wifToDraft, draftToLiftJson, liftJsonToDraft } from '../src/pipeline/export-wif.js';
+import { reassignRegion } from '../src/pipeline/cells.js';
 import { syntheticCloth } from './fixture.mjs';
 
 let fails = 0;
@@ -202,12 +205,28 @@ console.log('9. generative tapestry from environment + fingerprint');
   for (const v of cold.cells.idx) if (v < 0 || v >= cold.palette.length) bad++;
   ok(bad === 0, 'out-of-range cell indices: '+bad);
 
-  // generative config round-trip → identical V2 render
-  const cfg = modelToConfig(cold, { name: 'gen-round', source: 'generative' });
+  // generative config round-trip → identical V2 render (reapplies DesignSpec ops)
+  const cfg = modelToConfig(cold, {
+    name: 'gen-round', source: 'generative', tool: 'generate',
+    designSpec: cold.generative.designSpec, seed: cold.generative.seed
+  });
   ok(cfg.meta.source === 'generative', 'gen meta lost');
   const back = configToModel(cfg);
-  back.draft = () => buildDraft(back.cells.idx, back.geometry.cols, back.geometry.rows,
-    back.palette.map(y => y.role), back.structure.assign, 2);
+  // mirror shared attachDraft: rebuild + ops from designSpec
+  back.draft = () => {
+    const tp = 2;
+    const base = buildDraft(back.cells.idx, back.geometry.cols, back.geometry.rows,
+      back.palette.map(y => y.role), back.structure.assign, tp, { repair: true });
+    const ops = back.generative?.designSpec?.structurePlan?.ops || [];
+    if (!ops.length) return base;
+    const mod = runDraftOps({
+      draft: base.draft, W: base.W, H: base.H, ops,
+      seed: back.generative?.seed ?? 1,
+      maxFloat: (back.generative?.designSpec?.densityPlan?.maxFloat || 8) * tp,
+      repair: true
+    });
+    return { draft: mod.draft, W: mod.W, H: mod.H, tp };
+  };
   const fromCfg = renderV2(back, { targetW: 320 });
   ok(Buffer.compare(Buffer.from(fromCfg.data), Buffer.from(r1.data)) === 0,
      'gen config round-trip render differs');
@@ -367,6 +386,82 @@ console.log('11b. weave aesthetic modes, tightness, handloom roughness');
   const legacy = renderV2(model, { depth: 'printed', targetW: 200 });
   ok(legacy.w > 0, 'legacy printed depth');
   console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%`);
+}
+
+console.log('13. structure library, repair, draft-ops, DesignSpec, WIF');
+{
+  const names = structureNames();
+  ok(names.length >= 10, 'structure library size '+names.length);
+  for (const name of names){
+    const W = 24, H = 24;
+    const d = new Uint8Array(W*H);
+    const s = STRUCTURES[name];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) d[y*W+x] = s.lift(x,y) ? 1 : 0;
+    const v = validateDraft(d, W, H, { maxFloat: Math.max(8, s.maxFloat || 8) });
+    // lenoStub / satins may need repair — ensure repair can heal flats
+    if (!v.ok){
+      const r = repairDraft(d, W, H, { maxFloat: 8 });
+      ok(r.validity.ok || r.repairs > 0, name+' neither ok nor repaired');
+    } else ok(true, name+' valid');
+  }
+
+  const flat = new Uint8Array(64).fill(1);
+  const repaired = repairDraft(flat, 8, 8, { maxFloat: 4 });
+  ok(repaired.validity.flatRowsCols === 0, 'repair should clear flat rows/cols');
+  ok(repaired.repairs > 0, 'repair should report work');
+
+  const base = runDraftOps({ W: 32, H: 24, ops: [{ op:'fromStructure', structure:'twill' }], repair:true, seed:1 });
+  ok(base.validity.ok, 'fromStructure twill should be ok');
+  const glitched = runDraftOps({
+    W: 32, H: 24, draft: base.draft,
+    ops: [{ op:'glitch', density: 0.08 }], seed: 9, repair: true
+  });
+  ok(glitched.validity.ok, 'glitch+repair should be ok');
+  let gd = 0;
+  for (let i = 0; i < base.draft.length; i++) if (base.draft[i] !== glitched.draft[i]) gd++;
+  ok(gd > 10, 'glitch should change draft bits');
+  const g2 = runDraftOps({
+    W: 32, H: 24, draft: base.draft,
+    ops: [{ op:'glitch', density: 0.08 }], seed: 9, repair: true
+  });
+  ok(Buffer.compare(Buffer.from(glitched.draft), Buffer.from(g2.draft)) === 0, 'glitch not deterministic');
+
+  const spec = resolveDesignSpec({ wind: 12 }, defaultFingerprint(), { seed: 7, cols: 48, rows: 36, glitch: 0.05 });
+  ok(Array.isArray(spec.structurePlan.ops), 'DesignSpec has ops');
+  ok(spec.structurePlan.ops.some(o => o.op === 'glitch'), 'glitch op from opts');
+  const m1 = materializeFromDesignSpec(spec, { seed: 7 });
+  const m2 = materializeFromDesignSpec(spec, { seed: 7 });
+  ok(Buffer.compare(Buffer.from(m1.cells.idx), Buffer.from(m2.cells.idx)) === 0, 'materialize idx not deterministic');
+  ok(m1.generative.designSpec.structurePlan.ground, 'public designSpec present');
+  ok(m1.generative.provenance?.draftValidity, 'provenance validity');
+  ok(m1.structure.validity?.ok, 'materialized draft validity');
+
+  // edit one DesignSpec field
+  const edited = structuredClone(m1.generative.designSpec);
+  edited.structurePlan.field = 'basket4';
+  edited.seed = 7;
+  const mEdit = materializeFromDesignSpec(edited, { seed: 7 });
+  ok(mEdit.structure.assign.field === 'basket4', 'edited field assign');
+
+  const dobj = m1.draft();
+  const wif = draftToWif(dobj.draft, dobj.W, dobj.H, { name: 't' });
+  const back = wifToDraft(wif);
+  ok(back.W === dobj.W && back.H === dobj.H, 'WIF size');
+  ok(Buffer.compare(Buffer.from(dobj.draft), Buffer.from(back.draft)) === 0, 'WIF round-trip');
+  const lift = draftToLiftJson(dobj.draft, dobj.W, dobj.H);
+  const liftBack = liftJsonToDraft(lift);
+  ok(Buffer.compare(Buffer.from(dobj.draft), Buffer.from(liftBack.draft)) === 0, 'lift json round-trip');
+
+  const cfg = modelToConfig(m1, { name: 'prov', source: 'generative', tool: 'generate' });
+  ok(cfg.meta.provenance?.designSpec, 'config provenance designSpec');
+  ok(cfg.characteristics.draftValidity, 'config stores draftValidity');
+
+  const fp = fingerprintModel(m1);
+  ok(fp.spatial.roleGrid?.data?.length === 64, 'fingerprint roleGrid 8x8');
+  const region = reassignRegion(m1.cells.idx, m1.geometry.cols, m1.geometry.rows, { x0:0,y0:0,x1:3,y1:3 }, 1);
+  ok(region[0] === 1, 'reassignRegion');
+
+  console.log(`   structures=${names.length}; glitchΔ=${gd}; wif ok; roleGrid=${fp.spatial.roleGrid.data.length}`);
 }
 
 /* optional: real pasture photo if present — extra fidelity gate */

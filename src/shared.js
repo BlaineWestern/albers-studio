@@ -1,10 +1,28 @@
 import { buildDraft } from './pipeline/structure.js';
+import { runDraftOps } from './pipeline/draft-ops.js';
 
 export const API = 'http://localhost:4571/api';
 
-export function attachDraft(m){
-  m.draft = () => buildDraft(m.cells.idx, m.geometry.cols, m.geometry.rows,
-    m.palette.map(y => y.role), m.structure.assign, 2);
+/** Attach draft() that rebuilds from cells+assign and re-applies DesignSpec ops. */
+export function attachDraft(m, meta = {}){
+  m.draft = () => {
+    const tp = 2;
+    const base = buildDraft(
+      m.cells.idx, m.geometry.cols, m.geometry.rows,
+      m.palette.map(y => y.role), m.structure.assign, tp, { repair: true }
+    );
+    const ops = m.generative?.designSpec?.structurePlan?.ops
+      || meta.designSpec?.structurePlan?.ops
+      || meta.provenance?.designSpec?.structurePlan?.ops
+      || [];
+    if (!ops.length) return base;
+    const seed = m.generative?.seed ?? meta.seed ?? 1;
+    const maxFloat = (m.generative?.designSpec?.densityPlan?.maxFloat || 8) * tp;
+    const mod = runDraftOps({
+      draft: base.draft, W: base.W, H: base.H, ops, seed, maxFloat, repair: true
+    });
+    return { draft: mod.draft, W: mod.W, H: mod.H, tp, validity: mod.validity };
+  };
   return m;
 }
 

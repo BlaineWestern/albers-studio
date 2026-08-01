@@ -3,6 +3,7 @@ import { WEAVE_MODES } from '../pipeline/construct.js';
 import { modelToSvg } from '../pipeline/svg.js';
 import { renderDraftImage } from '../pipeline/render/v2.js';
 import { modelToConfig } from '../pipeline/config.js';
+import { draftToWif, draftToLiftJson } from '../pipeline/export-wif.js';
 import { API, download, imgToCanvas } from '../shared.js';
 
 /** Shared tapestry stage — weave construction aesthetics + exports.
@@ -11,7 +12,7 @@ export function TapestryStage({
   model,
   weaveMode, setWeaveMode, tightness, setTightness, roughness, setRoughness,
   outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved,
-  constructionNote
+  constructionNote, provenance
 }){
   const savePng = () => download(
     `tapestry-${weaveMode}.png`,
@@ -24,11 +25,34 @@ export function TapestryStage({
     imgToCanvas(img, t);
     download('draft.png', t.toDataURL('image/png'));
   };
+  const saveProvenance = () => {
+    const blob = provenance || model?.generative?.provenance || {
+      tool: 'studio', weave: { mode: weaveMode, tightness, roughness }
+    };
+    download('provenance.json',
+      'data:application/json,'+encodeURIComponent(JSON.stringify(blob, null, 2)));
+  };
+  const saveWif = () => {
+    if (!model?.draft) return;
+    const d = model.draft();
+    const wif = draftToWif(d.draft, d.W, d.H, { name: 'albers-draft' });
+    const lift = draftToLiftJson(d.draft, d.W, d.H, { name: 'albers-draft' });
+    download('draft.wif', 'data:text/plain,'+encodeURIComponent(wif));
+    download('draft.lift.json',
+      'data:application/json,'+encodeURIComponent(JSON.stringify(lift)));
+  };
   const saveProfile = async () => {
     const name = prompt('Profile name?', 'untitled tapestry');
     if (!name) return;
     const cfg = modelToConfig(model, {
-      name, weave: { mode: weaveMode, tightness, roughness }
+      name,
+      tool: model.generative ? 'generate' : 'photo',
+      source: model.generative ? 'generative' : 'transform',
+      designSpec: model.generative?.designSpec,
+      weave: { mode: weaveMode, tightness, roughness },
+      env: model.generative?.env,
+      seed: model.generative?.seed,
+      style: model.generative?.style
     });
     try {
       await fetch(API+'/configs', { method:'POST',
@@ -73,10 +97,19 @@ export function TapestryStage({
         <button disabled={!model} onClick={savePng}>PNG</button>
         <button disabled={!model} onClick={saveSvg}>SVG</button>
         <button disabled={!model || !model.draft} onClick={saveDraft}>Draft</button>
+        <button disabled={!model || !model.draft} onClick={saveWif}>WIF</button>
+        <button disabled={!model} onClick={saveProvenance}>Provenance</button>
         <button disabled={!model} onClick={saveProfile}>Save profile</button>
       </div>
       {fid && <div className="readout">
         fidelity: mean dE {fid.mean.toFixed(1)} · band r {fid.rows.toFixed(3)}
+      </div>}
+      {provenance && <div className="readout">
+        <b>Provenance</b> · {provenance.tool || 'studio'}
+        {provenance.style ? ` · ${provenance.style}` : ''}
+        {provenance.seed != null ? ` · seed ${provenance.seed}` : ''}
+        {provenance.draftValidity
+          ? ` · draft ${provenance.draftValidity.ok ? 'ok' : 'flagged'}` : ''}
       </div>}
       {showProfiles && profiles?.length > 0 && <div className="readout">
         <b>Profiles</b>

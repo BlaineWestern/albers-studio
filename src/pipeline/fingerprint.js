@@ -34,6 +34,26 @@ function spatialStats(idx, cols, rows, ground){
     if (x+1 < cols){ neigh++; if (idx[y*cols+x+1] !== v) disagree++; }
     if (y+1 < rows){ neigh++; if (idx[(y+1)*cols+x] !== v) disagree++; }
   }
+  // 8×8 role downsample — spatial prior for generative bias (not a motif copy)
+  const gw = 8, gh = 8;
+  const roleGrid = new Array(gw * gh);
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++){
+    const x0 = Math.floor(gx / gw * cols);
+    const x1 = Math.floor((gx + 1) / gw * cols);
+    const y0 = Math.floor(gy / gh * rows);
+    const y1 = Math.floor((gy + 1) / gh * rows);
+    const tally = new Map();
+    let best = ground, bestN = -1;
+    for (let y = y0; y < Math.max(y0+1, y1); y++)
+      for (let x = x0; x < Math.max(x0+1, x1); x++){
+        if (x >= cols || y >= rows) continue;
+        const v = idx[y*cols+x];
+        const n = (tally.get(v) || 0) + 1;
+        tally.set(v, n);
+        if (n > bestN){ bestN = n; best = v; }
+      }
+    roleGrid[gy*gw+gx] = best;
+  }
   return {
     transitionRate: +(transitions / Math.max(1, rows*(cols-1))).toFixed(4),
     vertCoherence: +(vertSame / Math.max(1, vertPairs)).toFixed(4),
@@ -41,7 +61,8 @@ function spatialStats(idx, cols, rows, ground){
     p50Run: pct(0.5),
     p90Run: pct(0.9),
     disorder: +(disagree / Math.max(1, neigh)).toFixed(4),
-    groundShare: +(idx.reduce((a,v)=>a+(v===ground?1:0),0) / N).toFixed(4)
+    groundShare: +(idx.reduce((a,v)=>a+(v===ground?1:0),0) / N).toFixed(4),
+    roleGrid: { w: gw, h: gh, data: roleGrid }
   };
 }
 
@@ -149,7 +170,23 @@ export function blendFingerprints(fps, weights){
     p50Run: Math.round(avg(f => f.spatial.p50Run)),
     p90Run: Math.round(avg(f => f.spatial.p90Run)),
     disorder: +avg(f => f.spatial.disorder).toFixed(4),
-    groundShare: +avg(f => f.spatial.groundShare).toFixed(4)
+    groundShare: +avg(f => f.spatial.groundShare).toFixed(4),
+    roleGrid: (() => {
+      const grids = fps.map(f => f.spatial?.roleGrid).filter(g => g?.data?.length);
+      if (!grids.length) return null;
+      const g0 = grids[0];
+      const data = g0.data.map((_, i) => {
+        const tally = new Map();
+        for (let j = 0; j < grids.length; j++){
+          const v = grids[j].data[Math.min(i, grids[j].data.length-1)];
+          tally.set(v, (tally.get(v) || 0) + w[j]);
+        }
+        let best = 0, bestN = -1;
+        for (const [v, n] of tally) if (n > bestN){ bestN = n; best = v; }
+        return best;
+      });
+      return { w: g0.w, h: g0.h, data };
+    })()
   };
   base.marks = {
     count: Math.round(avg(f => f.marks.count)),

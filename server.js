@@ -20,10 +20,14 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fingerprintConfig, blendFingerprints } from './src/pipeline/fingerprint.js';
-import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS } from './src/pipeline/generative.js';
+import {
+  generateFromEnv, materializeFromDesignSpec, defaultFingerprint, ENV_DEFAULTS
+} from './src/pipeline/generative.js';
 import { transformImage, TRANSFORM_DEFAULTS, PHOTO_MODES } from './src/pipeline/transform.js';
 import { modelToConfig } from './src/pipeline/config.js';
-import { buildDraft } from './src/pipeline/structure.js';
+import { buildDraft, structureNames } from './src/pipeline/structure.js';
+import { runDraftOps } from './src/pipeline/draft-ops.js';
+import { draftToWif, wifToDraft, draftToLiftJson, liftJsonToDraft } from './src/pipeline/export-wif.js';
 
 const PORT = Number(process.env.PORT) || 4571;
 const ROOT = new URL('./dist/', import.meta.url).pathname;
@@ -76,9 +80,21 @@ function fingerprintsForIds(ids){
 }
 
 function attachDraft(model){
-  model.draft = () => buildDraft(
-    model.cells.idx, model.geometry.cols, model.geometry.rows,
-    model.palette.map(y => y.role), model.structure.assign, 2);
+  model.draft = () => {
+    const tp = 2;
+    const base = buildDraft(
+      model.cells.idx, model.geometry.cols, model.geometry.rows,
+      model.palette.map(y => y.role), model.structure.assign, tp, { repair: true });
+    const ops = model.generative?.designSpec?.structurePlan?.ops || [];
+    if (!ops.length) return base;
+    const mod = runDraftOps({
+      draft: base.draft, W: base.W, H: base.H, ops,
+      seed: model.generative?.seed ?? 1,
+      maxFloat: (model.generative?.designSpec?.densityPlan?.maxFloat || 8) * tp,
+      repair: true
+    });
+    return { draft: mod.draft, W: mod.W, H: mod.H, tp, validity: mod.validity };
+  };
   return model;
 }
 
@@ -165,20 +181,32 @@ createServer(async (req, res) => {
         const fromProfiles = fingerprintsForIds(body.profileIds);
         fp = fp ? blendFingerprints([...fromProfiles, fp]) : blendFingerprints(fromProfiles);
       }
-      const model = attachDraft(generateFromEnv({
-        env: { ...ENV_DEFAULTS, ...(body.env || {}) },
-        fingerprint: fp || defaultFingerprint(),
-        seed: body.seed,
-        cols: body.cols,
-        rows: body.rows,
-        tp: body.tp
-      }));
+      fp = fp || defaultFingerprint();
+      let model;
+      if (body.designSpec){
+        model = attachDraft(materializeFromDesignSpec(body.designSpec, {
+          fingerprint: fp, seed: body.seed ?? body.designSpec.seed, tp: body.tp
+        }));
+      } else {
+        model = attachDraft(generateFromEnv({
+          env: { ...ENV_DEFAULTS, ...(body.env || {}) },
+          fingerprint: fp,
+          seed: body.seed,
+          cols: body.cols,
+          rows: body.rows,
+          tp: body.tp,
+          glitch: body.glitch
+        }));
+      }
       const cfg = modelToConfig(model, {
         name: body.name || `env-${model.generative.style}`,
         source: 'generative',
+        tool: 'generate',
         env: model.generative.env,
         seed: model.generative.seed,
-        style: model.generative.style
+        style: model.generative.style,
+        designSpec: model.generative.designSpec,
+        weave: model.generative.appearance
       });
       if (body.save) saveConfig(cfg);
       return json(res, 200, { config: cfg, generative: model.generative });
@@ -193,8 +221,27 @@ createServer(async (req, res) => {
           temperature: '°C', humidity: '%', wind: 'm/s',
           precipitation: 'mm', light: '0–1 relative', season: '0–1 year phase'
         },
+        structures: structureNames(),
         fingerprint: defaultFingerprint()
       });
+    }
+
+    // WIF / lift interchange
+    if (url.pathname === '/api/export/wif' && req.method === 'POST'){
+      const body = await readBody(req);
+      if (!body.draft || !body.W || !body.H)
+        return json(res, 400, { error: 'draft, W, H required' });
+      const draft = Uint8Array.from(body.draft);
+      return json(res, 200, {
+        wif: draftToWif(draft, body.W, body.H, body.meta || {}),
+        lift: draftToLiftJson(draft, body.W, body.H, body.meta || {})
+      });
+    }
+    if (url.pathname === '/api/import/wif' && req.method === 'POST'){
+      const body = await readBody(req);
+      if (body.wif) return json(res, 200, wifToDraft(body.wif));
+      if (body.lift) return json(res, 200, liftJsonToDraft(body.lift));
+      return json(res, 400, { error: 'wif or lift required' });
     }
 
     const fpMatch = url.pathname.match(/^\/api\/configs\/(\d+)\/fingerprint$/);

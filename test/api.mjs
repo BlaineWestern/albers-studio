@@ -179,6 +179,29 @@ await withServer(async () => {
   ok(extreme.status === 200, 'extreme env status');
   ok(extreme.json.config.yarns.every(y => y.rgb.every(c => c >= 0 && c <= 255)),
      'extreme env produced invalid rgb');
+
+  console.log('API · designSpec rematerialize + WIF');
+  const specBody = a.json.generative?.designSpec || {
+    gauge: { cols: 40, rows: 30, wefted: 0.86 },
+    palettePlan: { labs:[[0.4,0,0],[0.6,0,0]], roles:['ground','field'], shares:[0.6,0.4] },
+    structurePlan: { ground:'plain', field:'twill', supplementary:'weft5', ops:[{op:'glitch',density:0.03}] },
+    densityPlan: { markBoost:1, fieldBoost:1, disorder:0.3, vertBias:0.3, meanRun:3, minGround:0.45, maxFloat:8 },
+    appearancePlan: { tightness:0.8, roughness:0.3, mode:'tile' },
+    seed: 99
+  };
+  const rem = await req('POST', '/api/generate', { designSpec: specBody, seed: 99, name: 'spec-api' });
+  ok(rem.status === 200, 'designSpec generate status '+rem.status);
+  ok(rem.json.generative?.designSpec?.structurePlan, 'designSpec echoed');
+  ok(rem.json.config.meta?.provenance?.designSpec, 'provenance on config');
+
+  const defs = await req('GET', '/api/generate/defaults');
+  ok(defs.json.structures?.length >= 10, 'defaults list structures');
+
+  const draftBits = new Array(16).fill(0).map((_,i) => i % 2);
+  const wifExp = await req('POST', '/api/export/wif', { draft: draftBits, W: 4, H: 4, meta:{ name:'t' } });
+  ok(wifExp.status === 200 && wifExp.json.wif.includes('ALBERS DRAFT'), 'export wif');
+  const wifImp = await req('POST', '/api/import/wif', { wif: wifExp.json.wif });
+  ok(wifImp.status === 200 && wifImp.json.W === 4, 'import wif');
 });
 
 console.log(fails ? `\nX ${fails} API failure(s)` : '\nOK api checks passed');
