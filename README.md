@@ -62,8 +62,9 @@ warp up) · Profile JSON → SQLite.
 
 ## Tests
 
-    node test/run.mjs
+    npm test                # unit + API integration
+    npm run test:unit       # pipeline / generative only
+    npm run test:api        # HTTP routes against a throwaway server
 
-Runs the fuzzy suite against the real Pasture photograph: model shape,
-three renderers, responsive equivalence, config round-trip, SVG layer
-structure, draft sanity, fingerprint extraction, and env generation.
+Unit suite uses a synthetic woven fixture (always available). If
+`/tmp/fx/pasture.raw` exists, an extra real-photo fidelity gate runs too.

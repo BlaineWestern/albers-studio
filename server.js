@@ -17,7 +17,7 @@ import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS } from './src/pipelin
 import { modelToConfig } from './src/pipeline/config.js';
 import { buildDraft } from './src/pipeline/structure.js';
 
-const PORT = 4571;
+const PORT = Number(process.env.PORT) || 4571;
 const ROOT = new URL('./dist/', import.meta.url).pathname;
 // STUDIO_DB overrides the location (useful when the app folder is on a
 // network mount, where SQLite's file locking is unsupported).
