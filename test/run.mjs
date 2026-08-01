@@ -14,7 +14,10 @@ import { transformImage, defaultQuad, decodeImagePayload, PHOTO_MODES, photoMode
 import { constructTapestry } from '../src/pipeline/construct.js';
 import { runDraftOps } from '../src/pipeline/draft-ops.js';
 import { draftToWif, wifToDraft, draftToLiftJson, liftJsonToDraft } from '../src/pipeline/export-wif.js';
-import { reassignRegion } from '../src/pipeline/cells.js';
+import { reassignRegion, paintBrush } from '../src/pipeline/cells.js';
+import { generateCaDraft, searchCaDrafts } from '../src/pipeline/structure-ca.js';
+import { buildLayeredDraft, draftFromLayers } from '../src/pipeline/structure.js';
+import { createHash } from 'node:crypto';
 import { syntheticCloth } from './fixture.mjs';
 
 let fails = 0;
@@ -462,6 +465,60 @@ console.log('13. structure library, repair, draft-ops, DesignSpec, WIF');
   ok(region[0] === 1, 'reassignRegion');
 
   console.log(`   structures=${names.length}; glitchΔ=${gd}; wif ok; roleGrid=${fp.spatial.roleGrid.data.length}`);
+}
+
+console.log('14. CA drafts, double-weave, authoring helpers, golden checksums');
+{
+  const ca = generateCaDraft({ W: 32, H: 24, rule: 90, structure: 'plain', seed: 1 });
+  ok(ca.draft.length === 32*24, 'ca draft size');
+  ok(ca.validity.ok, 'ca draft should validate after repair');
+  const best = searchCaDrafts({ W: 24, H: 20, seed: 2 });
+  ok(best && best.validity.ok, 'ca search should find valid candidate');
+  const viaOp = runDraftOps({ W: 28, H: 20, ops: [{ op: 'caSeed', rule: 110 }], seed: 4 });
+  ok(viaOp.validity.ok, 'caSeed op validity');
+
+  const spec = resolveDesignSpec({}, defaultFingerprint(), { seed: 5, cols: 36, rows: 28 });
+  spec.structurePlan.doubleWeave = true;
+  const dw = materializeFromDesignSpec(spec, { seed: 5 });
+  ok(dw.structure.layers?.length === 2, 'double weave layers');
+  const face0 = dw.draft();
+  dw.structure.face = 1;
+  const face1 = dw.draft();
+  ok(face1.face === 1, 'face switch');
+  let faceDiff = 0;
+  for (let i = 0; i < face0.draft.length; i++) if (face0.draft[i] !== face1.draft[i]) faceDiff++;
+  ok(faceDiff > face0.draft.length * 0.01, 'faces should differ');
+
+  const layered = buildLayeredDraft(
+    dw.cells.idx, dw.geometry.cols, dw.geometry.rows,
+    dw.palette.map(y => y.role), dw.structure.assign, null, 2
+  );
+  const picked = draftFromLayers(layered, 1);
+  ok(picked.face === 1 && picked.draft.length > 0, 'draftFromLayers');
+
+  const painted = paintBrush(dw.cells.idx, dw.geometry.cols, dw.geometry.rows, 4, 4, 2, 2);
+  ok(painted[4 * dw.geometry.cols + 4] === 2, 'paintBrush center');
+
+  const overrides = runDraftOps({
+    W: face0.W, H: face0.H, draft: face0.draft,
+    ops: [{ op: 'manualOverrides', cells: [{ x: 0, y: 0, v: face0.draft[0] ? 0 : 1 }] }],
+    repair: true
+  });
+  ok(overrides.draft[0] !== face0.draft[0], 'manualOverrides flips cell');
+
+  // golden weave checksums
+  const goldPath = new URL('./golden/weave-checksums.json', import.meta.url);
+  const gold = JSON.parse(readFileSync(goldPath));
+  const gm = generateFromEnv({ seed: gold.model.seed, cols: gold.model.cols, rows: gold.model.rows });
+  for (const mode of Object.keys(gold.checksums)){
+    const out = renderWeave(gm, {
+      mode, targetW: gold.targetW, tightness: gold.tightness,
+      roughness: gold.roughness, seed: gold.seed
+    });
+    const hash = createHash('sha256').update(Buffer.from(out.data)).digest('hex').slice(0, 16);
+    ok(hash === gold.checksums[mode], `golden ${mode}: got ${hash} want ${gold.checksums[mode]}`);
+  }
+  console.log(`   ca rule90 ok; facesΔ=${faceDiff}; goldens ${Object.keys(gold.checksums).length}`);
 }
 
 /* optional: real pasture photo if present — extra fidelity gate */

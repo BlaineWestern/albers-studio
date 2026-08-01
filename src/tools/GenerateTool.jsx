@@ -7,6 +7,7 @@ import {
 import { structureNames } from '../pipeline/structure.js';
 import { configToModel } from '../pipeline/config.js';
 import { TapestryStage, ToolChrome } from '../components/TapestryStage.jsx';
+import { AuthoringEditors } from '../components/AuthoringEditors.jsx';
 import { API, attachDraft, imgToCanvas } from '../shared.js';
 
 const ENV_FIELDS = [
@@ -265,11 +266,33 @@ export function GenerateTool(){
                        onChange={e=>patchSpec('appearancePlan.roughness', +e.target.value)}/>
                 <em>{designSpec.appearancePlan.roughness.toFixed(2)}</em>
               </label>
+              <label className="check">
+                <input type="checkbox" checked={!!designSpec.structurePlan.doubleWeave}
+                       onChange={e=>patchSpec('structurePlan.doubleWeave', e.target.checked)}/>
+                Double weave
+              </label>
+              <label className="check">
+                <input type="checkbox"
+                       checked={(designSpec.structurePlan.ops||[]).some(o => o.op === 'caSeed')}
+                       onChange={e=>{
+                         const ops = (designSpec.structurePlan.ops||[]).filter(o => o.op !== 'caSeed');
+                         if (e.target.checked) ops.push({ op:'caSeed', rule:90, structure: designSpec.structurePlan.ground });
+                         patchSpec('structurePlan.ops', ops);
+                       }}/>
+                CA seed op
+              </label>
               <div className="bar">
                 <button onClick={rematerialize}>{busy || 'Rematerialize'}</button>
               </div>
             </>}
           </div>
+          {model && <AuthoringEditors model={model} setModel={setModel}
+            onEdited={(m)=>{
+              // keep construction in sync after edits
+              if (m.generative?.appearance){
+                /* appearance unchanged */
+              }
+            }}/>}
         </section>
 
         <section>

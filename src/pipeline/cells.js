@@ -17,3 +17,19 @@ export function reassignYarn(idx, fromId, toId){
   for (let i = 0; i < out.length; i++) if (out[i] === fromId) out[i] = toId;
   return out;
 }
+
+/** Paint a disc brush at cell (cx,cy) with radius r (cells). */
+export function paintBrush(idx, cols, rows, cx, cy, yarnId, radius = 1){
+  const out = idx instanceof Uint8Array ? idx.slice() : Uint8Array.from(idx);
+  const r = Math.max(0, radius|0);
+  const v = yarnId|0;
+  for (let y = cy - r; y <= cy + r; y++){
+    if (y < 0 || y >= rows) continue;
+    for (let x = cx - r; x <= cx + r; x++){
+      if (x < 0 || x >= cols) continue;
+      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r + 0.25)
+        out[y * cols + x] = v;
+    }
+  }
+  return out;
+}

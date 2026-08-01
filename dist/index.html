@@ -79,6 +79,14 @@
   .spec-panel select{ font:inherit; letter-spacing:.06em; text-transform:uppercase;
     background:transparent; color:var(--ink); border:1px solid var(--ink); padding:4px 6px; width:100% }
   .spec-panel .hint{ margin:0; opacity:.65; text-transform:none; letter-spacing:.04em }
+  .authoring{ display:flex; flex-direction:column; gap:8px; margin-top:10px;
+    border-top:1px solid var(--rule); padding-top:8px }
+  .authoring-grids{ display:grid; grid-template-columns:1fr 1fr; gap:8px }
+  .edit-grid{ display:block; max-width:100%; height:auto; cursor:crosshair;
+    background:#c9c1b0; image-rendering:pixelated }
+  .yarn-pick{ display:inline-flex; align-items:center; gap:4px; padding:3px 6px !important }
+  .yarn-pick i{ width:10px; height:10px; display:inline-block; border:1px solid rgba(0,0,0,.25) }
+  .yarn-pick.on{ background:var(--ink); color:var(--paper) }
 </style>
 </head>
 <body>

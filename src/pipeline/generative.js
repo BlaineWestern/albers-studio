@@ -3,7 +3,7 @@
      Inputs → DesignSpec (named params) → indexmap | draft | appearance
    Colour and structure stay separate; drafts use known valid weave families. */
 import { mulberry32, nz, oklabToRgb, clamp01 } from './core.js';
-import { yarnRoles, markRuns, floatStats, buildDraft, DEFAULT_ASSIGN, STRUCTURES } from './structure.js';
+import { yarnRoles, markRuns, floatStats, buildDraft, buildLayeredDraft, draftFromLayers, DEFAULT_ASSIGN, STRUCTURES } from './structure.js';
 import { blendFingerprints } from './fingerprint.js';
 import { runDraftOps, defaultModulatorOps } from './draft-ops.js';
 
@@ -178,7 +178,10 @@ export function normalizeDesignSpec(spec = {}, opts = {}){
     ground: knownStructure(spec.structurePlan?.ground, 'plain'),
     field: knownStructure(spec.structurePlan?.field, 'twill'),
     supplementary: knownStructure(spec.structurePlan?.supplementary, 'weft5'),
-    ops: Array.isArray(spec.structurePlan?.ops) ? spec.structurePlan.ops.slice() : []
+    ops: Array.isArray(spec.structurePlan?.ops) ? spec.structurePlan.ops.slice() : [],
+    doubleWeave: !!spec.structurePlan?.doubleWeave,
+    face: spec.structurePlan?.face ? 1 : 0,
+    faceB: spec.structurePlan?.faceB || null
   };
   return {
     schema: 'albers-studio/design-spec@1',
@@ -361,7 +364,10 @@ function publicDesignSpec(spec){
       ground: spec.structurePlan.ground,
       field: spec.structurePlan.field,
       supplementary: spec.structurePlan.supplementary,
-      ops: spec.structurePlan.ops || []
+      ops: spec.structurePlan.ops || [],
+      doubleWeave: !!spec.structurePlan.doubleWeave,
+      face: spec.structurePlan.face ? 1 : 0,
+      faceB: spec.structurePlan.faceB || null
     },
     densityPlan: { ...spec.densityPlan },
     appearancePlan: { ...spec.appearancePlan }
@@ -409,24 +415,54 @@ export function materializeFromDesignSpec(designSpec, opts = {}){
   const runs = markRuns(idx, cols, rowsFinal, liveRoles);
   const floats = floatStats(idx, cols, rowsFinal, palette.length);
   const maxFloat = (spec.densityPlan.maxFloat || 8) * tp;
+  const face = spec.structurePlan.face ? 1 : 0;
+  const doubleWeave = !!spec.structurePlan.doubleWeave;
 
-  const baseDraft = buildDraft(idx, cols, rowsFinal, liveRoles, assign, tp, {
-    maxFloat, repair: true
-  });
-  const ops = spec.structurePlan.ops || [];
-  const modulated = ops.length
-    ? runDraftOps({
-        draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
-        ops, seed, maxFloat, repair: true
-      })
-    : { draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
-        ops: [], validity: baseDraft.validity, repairs: baseDraft.repairs || 0 };
+  let layers = null;
+  let modulated;
+  if (doubleWeave){
+    const faceB = spec.structurePlan.faceB || {
+      ground: assign.field,
+      field: assign.ground,
+      supplementary: assign.supplementary
+    };
+    const layered = buildLayeredDraft(idx, cols, rowsFinal, liveRoles, assign, faceB, tp, {
+      maxFloat, repair: true, face
+    });
+    layers = layered.layers.map(L => {
+      const ops = spec.structurePlan.ops || [];
+      if (!ops.length) return L;
+      const mod = runDraftOps({
+        draft: L.draft, W: L.W, H: L.H, ops, seed, maxFloat, repair: true
+      });
+      return { ...L, draft: mod.draft, validity: mod.validity, repairs: mod.repairs };
+    });
+    const active = draftFromLayers({ layers }, face);
+    modulated = {
+      draft: active.draft, W: active.W, H: active.H,
+      ops: spec.structurePlan.ops || [],
+      validity: active.validity,
+      repairs: 0
+    };
+  } else {
+    const baseDraft = buildDraft(idx, cols, rowsFinal, liveRoles, assign, tp, {
+      maxFloat, repair: true
+    });
+    const ops = spec.structurePlan.ops || [];
+    modulated = ops.length
+      ? runDraftOps({
+          draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
+          ops, seed, maxFloat, repair: true
+        })
+      : { draft: baseDraft.draft, W: baseDraft.W, H: baseDraft.H,
+          ops: [], validity: baseDraft.validity, repairs: baseDraft.repairs || 0 };
+  }
 
   const validity = modulated.validity;
-  const draftCache = { draft: modulated.draft, W: modulated.W, H: modulated.H, tp };
+  const draftCache = { draft: modulated.draft, W: modulated.W, H: modulated.H, tp, face };
   const pubSpec = publicDesignSpec(spec);
 
-  return {
+  const model = {
     version: 'v2',
     generative: {
       schema: 'albers-studio/generative@1',
@@ -449,7 +485,9 @@ export function materializeFromDesignSpec(designSpec, opts = {}){
           floatViolations: validity.floatViolations,
           repairs: modulated.repairs || 0
         },
-        appearance: spec.appearancePlan
+        appearance: spec.appearancePlan,
+        doubleWeave,
+        face
       },
       appearance: spec.appearancePlan
     },
@@ -460,9 +498,30 @@ export function materializeFromDesignSpec(designSpec, opts = {}){
     },
     palette,
     cells: { idx, ground },
-    structure: { assign, runs, floats, validity },
-    draft: () => ({ ...draftCache, draft: draftCache.draft.slice() })
+    structure: {
+      assign, runs, floats, validity,
+      face, doubleWeave,
+      layers: layers ? layers.map(L => ({
+        assign: L.assign,
+        validity: L.validity,
+        draft: L.draft, W: L.W, H: L.H, tp: L.tp
+      })) : null
+    }
   };
+  model.draft = () => {
+    if (model.structure.layers?.length){
+      const active = draftFromLayers(
+        { layers: model.structure.layers },
+        model.structure.face ? 1 : 0
+      );
+      return {
+        draft: active.draft.slice(), W: active.W, H: active.H, tp: active.tp,
+        face: active.face, validity: active.validity
+      };
+    }
+    return { ...draftCache, draft: draftCache.draft.slice() };
+  };
+  return model;
 }
 
 /**

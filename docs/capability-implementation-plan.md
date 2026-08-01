@@ -14,11 +14,11 @@ Goal: turn each unfinished map row into **working functionality** in Albers Stud
 | M2 Draft dataflow | **done** — `draft-ops.js`, glitch op, DesignSpec.ops |
 | M3 Spec as product surface | **done** — `materializeFromDesignSpec`, inspector UI, provenance |
 | M4 Stronger priors | **done** — 8×8 `roleGrid` spatial bias |
-| M5 Authoring | **partial** — `reassignRegion` helper; no grid/brush UI yet |
-| M6 Interchange | **done** — WIF + lift JSON export/import API + UI |
-| M7 Appearance/QA | **partial** — richer handloom; golden images still open |
+| M5 Authoring | **done** — motif brush + draft grid toggles + undo |
+| M6 Interchange | **done** — WIF + lift JSON + double-weave faces |
+| M7 Appearance/QA | **done** — richer handloom + golden checksums |
 
-Still open / deferred: L2-07 double-weave, L2-06 CA search, L3-05 learned shading, L4-04 diffusion, L6-02 goldens, full L2-08/L1-05 editors.
+Still deferred: L3-05 learned yarn shading, L4-04 diffusion/LLM drafts.
 
 ---
 

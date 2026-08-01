@@ -210,3 +210,32 @@ export function buildDraft(idx, cols, rows, roles, assign, tp = 2, opt = {}){
   const repaired = repairDraft(draft, W, H, { maxFloat, assign });
   return { draft: repaired.draft, W, H, tp, validity: repaired.validity, repairs: repaired.repairs };
 }
+
+/**
+ * Double-weave: two independent lift plans (face A / face B) from two assigns.
+ * Face B defaults to swapped field/ground structures when not provided.
+ */
+export function buildLayeredDraft(idx, cols, rows, roles, assignA, assignB, tp = 2, opt = {}){
+  const a = buildDraft(idx, cols, rows, roles, assignA, tp, opt);
+  const bAssign = assignB || {
+    ground: assignA.field || 'twill',
+    field: assignA.ground || 'plain',
+    supplementary: assignA.supplementary || 'weft5'
+  };
+  const b = buildDraft(idx, cols, rows, roles, bAssign, tp, opt);
+  return {
+    layers: [
+      { assign: { ...assignA }, ...a },
+      { assign: { ...bAssign }, ...b }
+    ],
+    face: opt.face ?? 0,
+    W: a.W, H: a.H, tp
+  };
+}
+
+/** Pick active face from layered draft result. */
+export function draftFromLayers(layered, face = 0){
+  const i = face ? 1 : 0;
+  const L = layered.layers[i] || layered.layers[0];
+  return { draft: L.draft, W: L.W, H: L.H, tp: L.tp, validity: L.validity, face: i, assign: L.assign };
+}

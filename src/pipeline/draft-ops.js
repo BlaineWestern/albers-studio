@@ -2,6 +2,7 @@
    Ops transform a binary lift plan; colour/indexmap stays elsewhere. */
 import { mulberry32, clamp01 } from './core.js';
 import { STRUCTURES, validateDraft, repairDraft } from './structure.js';
+import { generateCaDraft } from './structure-ca.js';
 
 export const DRAFT_OPS = {
   fromStructure: 'Seed draft from a named STRUCTURES lift',
@@ -9,6 +10,8 @@ export const DRAFT_OPS = {
   invertRegion: 'Invert lifts inside a rect',
   cropPad: 'Crop then pad back to size',
   glitch: 'Seeded bit-flip noise (structure glitch)',
+  caSeed: 'Elementary CA row growth (filtered by repair)',
+  manualOverrides: 'Apply {x,y,v} lift overrides',
   validate: 'Attach validity (no mutation)',
   repair: 'Force interlacement / break floats'
 };
@@ -75,6 +78,16 @@ function glitch(draft, W, H, opt = {}){
   return out;
 }
 
+function applyOverrides(draft, W, H, overrides = []){
+  const out = draft.slice();
+  for (const o of overrides){
+    const x = o.x|0, y = o.y|0;
+    if (x < 0 || y < 0 || x >= W || y >= H) continue;
+    out[y*W+x] = o.v ? 1 : 0;
+  }
+  return out;
+}
+
 /**
  * Apply an ordered op list to a draft (or seed from structure).
  * @param {object} opts
@@ -121,6 +134,20 @@ export function runDraftOps(opts = {}){
     } else if (op === 'glitch'){
       draft = glitch(draft, W, H, { density: step.density, seed: step.seed ?? seed });
       log.push({ op, density: step.density ?? 0.04 });
+    } else if (op === 'caSeed'){
+      const ca = generateCaDraft({
+        W, H,
+        rule: step.rule ?? 90,
+        structure: step.structure || 'plain',
+        seed: step.seed ?? seed,
+        steps: step.steps,
+        maxFloat: opts.maxFloat
+      });
+      draft = ca.draft;
+      log.push({ op, rule: ca.rule, structure: step.structure || 'plain' });
+    } else if (op === 'manualOverrides'){
+      draft = applyOverrides(draft, W, H, step.cells || step.overrides || []);
+      log.push({ op, n: (step.cells || step.overrides || []).length });
     } else if (op === 'validate'){
       log.push({ op, validity: validateDraft(draft, W, H, opts) });
     } else if (op === 'repair'){
