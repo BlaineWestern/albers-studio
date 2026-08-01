@@ -128,4 +128,5 @@ This keeps faith with Albers: structure first, materials articulate, industry-ho
 - Vibeweaving / Aural Textiles — data capture → map → loom constraints → provenance  
 - Anni Albers, *On Weaving* — structure/colour/tactility as distinct decisions  
 
-See also: [`anni-albers-textile-profile.md`](./anni-albers-textile-profile.md)
+See also: [`anni-albers-textile-profile.md`](./anni-albers-textile-profile.md)  
+Implementation backlog (CSV): [`capability-map.csv`](./capability-map.csv)

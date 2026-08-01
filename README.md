@@ -38,8 +38,9 @@ Renderers only see the model — never the photograph. A saved profile
 (config JSON in SQLite) re-renders bit-identically without the source image.
 Fingerprints extracted from those profiles steer generative weaves.
 
-See also: [`docs/generative-textile-methods.md`](docs/generative-textile-methods.md)
-and [`docs/anni-albers-textile-profile.md`](docs/anni-albers-textile-profile.md).
+See also: [`docs/generative-textile-methods.md`](docs/generative-textile-methods.md),
+[`docs/anni-albers-textile-profile.md`](docs/anni-albers-textile-profile.md),
+and [`docs/capability-map.csv`](docs/capability-map.csv) (feature gap plan vs AdaCAD / FabricGen analogues).
 
 ## Photo transform API
 
