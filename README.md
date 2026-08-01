@@ -52,6 +52,10 @@ tension grain (strongest in Handloom mode).
 
 These controls apply in both **Photo** and **Generate** app modes.
 
+See also: [`docs/generative-textile-methods.md`](docs/generative-textile-methods.md)
+(input → DesignSpec → indexmap / draft / appearance) and
+[`docs/anni-albers-textile-profile.md`](docs/anni-albers-textile-profile.md).
+
 ## Generative / environment API
 
 | Route | Purpose |

@@ -212,6 +212,13 @@ export default function App(){
         info = m.generative;
       }
       setModel(m); setFlat(null); setFid(null); setGenInfo(info);
+      // apply DesignSpec appearance hints from generative pipeline
+      if (info?.appearance){
+        if (info.appearance.mode) setWeaveMode(info.appearance.mode);
+        if (info.appearance.tightness != null) setTightness(info.appearance.tightness);
+        if (info.appearance.roughness != null) setRoughness(info.appearance.roughness);
+      }
+      setVersion('V2');
     } catch (e){
       setBusy('');
       alert(e.message);

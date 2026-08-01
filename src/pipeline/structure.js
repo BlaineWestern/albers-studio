@@ -21,6 +21,47 @@ export const STRUCTURES = {
 };
 export const DEFAULT_ASSIGN = { ground:'plain', field:'twill', supplementary:'weft5' };
 
+/* Loom-honesty checks on a binary draft (1 = warp up). AdaCAD / TexCel-style
+   constraints: every row and column must interlace; floats should not run away. */
+export function validateDraft(draft, W, H, opt = {}){
+  const maxFloat = opt.maxFloat ?? Math.max(8, Math.ceil(Math.max(W, H) * 0.35));
+  const issues = [];
+  let ups = 0;
+  for (let y = 0; y < H; y++){
+    let has0 = false, has1 = false, run = 1, prev = draft[y*W];
+    for (let x = 0; x < W; x++){
+      const v = draft[y*W+x];
+      if (v){ has1 = true; ups++; } else has0 = true;
+      if (x && v === prev){ run++; if (run > maxFloat) issues.push({ kind:'row-float', y, len:run }); }
+      else run = 1;
+      prev = v;
+    }
+    if (!has0 || !has1) issues.push({ kind:'row-flat', y });
+  }
+  for (let x = 0; x < W; x++){
+    let has0 = false, has1 = false, run = 1, prev = draft[x];
+    for (let y = 0; y < H; y++){
+      const v = draft[y*W+x];
+      if (v) has1 = true; else has0 = true;
+      if (y && v === prev){ run++; if (run > maxFloat) issues.push({ kind:'col-float', x, len:run }); }
+      else run = 1;
+      prev = v;
+    }
+    if (!has0 || !has1) issues.push({ kind:'col-flat', x });
+  }
+  // collapse repeated float reports
+  const flatIssues = issues.filter(i => i.kind.endsWith('-flat'));
+  const floatOver = issues.filter(i => i.kind.endsWith('-float')).length;
+  return {
+    ok: flatIssues.length === 0 && floatOver === 0,
+    liftRatio: ups / Math.max(1, W*H),
+    flatRowsCols: flatIssues.length,
+    floatViolations: floatOver,
+    maxFloat,
+    issues: issues.slice(0, 24) // cap for provenance payloads
+  };
+}
+
 /* Runs of supplementary yarn, merged for float drawing and for SVG. */
 export function markRuns(idx, cols, rows, roles){
   const at = (x,y) => (x<0||y<0||x>=cols||y>=rows) ? -1 : idx[y*cols+x];

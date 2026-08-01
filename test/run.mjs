@@ -7,9 +7,9 @@ import { renderV12 } from '../src/pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from '../src/pipeline/render/v2.js';
 import { renderWeave, WEAVE_MODES, WEAVE_DEFAULTS } from '../src/pipeline/render/weave.js';
 import { modelToSvg } from '../src/pipeline/svg.js';
-import { buildDraft, DEFAULT_ASSIGN, STRUCTURES } from '../src/pipeline/structure.js';
+import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
-import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS } from '../src/pipeline/generative.js';
+import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS, resolveDesignSpec } from '../src/pipeline/generative.js';
 import { syntheticCloth } from './fixture.mjs';
 
 let fails = 0;
@@ -221,8 +221,12 @@ console.log('10. default fingerprint + edge envs');
   ok(m.palette.length >= 3, 'default yarn count');
   ok(m.cells.idx.length === m.geometry.cols * m.geometry.rows, 'default indexmap');
   ok(m.palette[m.cells.ground].share > 0.2, 'default ground starved');
+  ok(m.generative?.schema === 'albers-studio/generative@1', 'generative schema');
+  ok(m.generative?.designSpec?.structurePlan?.ground, 'designSpec missing');
+  ok(m.generative?.provenance?.layers?.includes('draft'), 'provenance layers');
+  ok(m.structure.validity?.liftRatio > 0.1 && m.structure.validity?.liftRatio < 0.9, 'draft lift ratio');
+  ok(m.structure.validity?.flatRowsCols === 0, 'draft has flat rows/cols: '+m.structure.validity?.flatRowsCols);
 
-  // empty env, partial env, extreme env, array fingerprint blend
   const partial = generateFromEnv({ env: { temperature: 5 }, seed: 2, cols: 40, rows: 30 });
   ok(partial.geometry.cols === 40, 'partial env cols');
   const extreme = generateFromEnv({
@@ -236,19 +240,29 @@ console.log('10. default fingerprint + edge envs');
   const fpB = fingerprintConfig(modelToConfig(m, { name: 'b' }));
   const blended = generateFromEnv({ fingerprint: [fpA, fpB], seed: 4, cols: 48, rows: 36 });
   ok(blended.palette.length >= 3, 'array fingerprint blend');
-  ok(blended.generative.style.includes('blend') || blended.generative.style.length > 0, 'blend style name');
 
-  // seed change must change cells
   const s1 = generateFromEnv({ seed: 10, cols: 40, rows: 30 });
   const s2 = generateFromEnv({ seed: 11, cols: 40, rows: 30 });
   let seedDiff = 0;
   for (let i = 0; i < s1.cells.idx.length; i++) if (s1.cells.idx[i] !== s2.cells.idx[i]) seedDiff++;
   ok(seedDiff > s1.cells.idx.length * 0.05, 'seed change inert');
 
-  // gauge clamps
   const tiny = generateFromEnv({ cols: 1, rows: 1, seed: 1 });
   ok(tiny.geometry.cols >= 24 && tiny.geometry.rows >= 16, 'gauge floor not applied');
-  console.log(`   default ${m.geometry.cols}x${m.geometry.rows}; seedDiff=${(100*seedDiff/s1.cells.idx.length).toFixed(0)}%`);
+
+  // DesignSpec: windy env prefers broken/field structures; calm dry prefers satin-ish marks
+  const windy = resolveDesignSpec({ wind: 18, precipitation: 0 }, defaultFingerprint(), { seed: 1 });
+  const calm = resolveDesignSpec({ wind: 0, humidity: 20, precipitation: 0 }, defaultFingerprint(), { seed: 1 });
+  ok(['twill','basket'].includes(windy.structurePlan.field), 'windy field structure: '+windy.structurePlan.field);
+  ok(windy.appearancePlan.roughness > calm.appearancePlan.roughness, 'wind should raise roughness');
+  ok(calm.appearancePlan.tightness >= windy.appearancePlan.tightness - 0.05, 'humidity/wind tightness');
+
+  // validateDraft rejects all-warp
+  const bad = new Uint8Array(16).fill(1);
+  const badV = validateDraft(bad, 4, 4);
+  ok(!badV.ok && badV.flatRowsCols > 0, 'validateDraft should reject flat draft');
+
+  console.log(`   default ${m.geometry.cols}x${m.geometry.rows}; seedDiff=${(100*seedDiff/s1.cells.idx.length).toFixed(0)}%; draft ok=${m.structure.validity.ok}`);
 }
 
 console.log('11. style transfer: fingerprint steers gauge & yarn count');
