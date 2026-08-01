@@ -15,10 +15,11 @@
   .sub{ opacity:.6 }
   .vtoggle{ margin-left:auto; display:flex; gap:0 }
   .vtoggle.modes{ margin-left:auto; margin-right:12px }
-  .vtoggle button{ border:1px solid var(--ink); border-left-width:0; padding:5px 12px;
-    background:transparent; color:var(--ink); font:inherit; letter-spacing:.14em; cursor:pointer }
-  .vtoggle button:first-child{ border-left-width:1px }
-  .vtoggle button.on{ background:var(--ink); color:var(--paper) }
+  .vtoggle button, .vtoggle a{ border:1px solid var(--ink); border-left-width:0; padding:5px 12px;
+    background:transparent; color:var(--ink); font:inherit; letter-spacing:.14em; cursor:pointer;
+    text-decoration:none; display:inline-block; text-transform:uppercase }
+  .vtoggle button:first-child, .vtoggle a:first-child{ border-left-width:1px }
+  .vtoggle button.on, .vtoggle a.on{ background:var(--ink); color:var(--paper) }
   .vnote{ font-size:10px; opacity:.55; text-align:right }
   .db{ opacity:.8 }
   .cols3{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; flex:1 }
@@ -63,6 +64,18 @@
   .weave-sliders{ flex-direction:column; align-items:stretch; gap:4px }
   .tight-row{ width:100%; opacity:1; grid-template-columns:72px 1fr 36px }
   .tight-row input[type=range]{ width:100% }
+  .tool-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; margin-top:24px }
+  .tool-card{ display:block; padding:20px 22px; border:1px solid var(--ink); color:inherit;
+    text-decoration:none; background:rgba(255,255,255,.25); min-height:180px }
+  .tool-card:hover{ background:var(--ink); color:var(--paper) }
+  .tool-card h2{ font-size:16px; letter-spacing:.12em; text-transform:uppercase; margin:8px 0 12px; font-weight:700 }
+  .tool-card p{ font-size:12px; letter-spacing:.04em; line-height:1.55; opacity:.85; text-transform:none }
+  .tool-card code{ font-size:10px; letter-spacing:0 }
+  .tool-card .go{ display:inline-block; margin-top:16px; font-size:10px; letter-spacing:.18em; text-transform:uppercase }
+  .tool-card:hover .plabel, .tool-card:hover p{ opacity:.75 }
+  .home-note{ margin-top:20px }
+  .check{ text-transform:uppercase; font-size:10px; gap:4px }
+  .check input{ accent-color:#1c1a17 }
 </style>
 </head>
 <body>

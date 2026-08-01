@@ -1,12 +1,19 @@
-/* Albers Studio server — zero dependencies. Serves the built app and a tiny
-   SQLite API using Node's built-in node:sqlite (Node 22+).
+/* Albers Studio server — zero dependencies. Serves the built app and API.
    Run: node server.js   → http://localhost:4571
 
-   Routes:
+   Tools (UI routes — SPA):
+     /              home / tool picker
+     /photo         image → textile transform tool
+     /generate      env + rug style → generative textile tool
+
+   API:
+     POST /api/transform                    photograph RGBA → config (+ optional save)
+     GET  /api/transform/defaults           transform schema
      GET/POST/DELETE /api/configs[/:id]     saved rug profiles
      GET  /api/configs/:id/fingerprint      style prior from a saved rug
      POST /api/fingerprint                  fingerprint an inline config body
      POST /api/generate                     env data + profile style → config
+     GET  /api/generate/defaults
 */
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
@@ -14,13 +21,12 @@ import { join, extname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fingerprintConfig, blendFingerprints } from './src/pipeline/fingerprint.js';
 import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS } from './src/pipeline/generative.js';
+import { transformImage, TRANSFORM_DEFAULTS } from './src/pipeline/transform.js';
 import { modelToConfig } from './src/pipeline/config.js';
 import { buildDraft } from './src/pipeline/structure.js';
 
 const PORT = Number(process.env.PORT) || 4571;
 const ROOT = new URL('./dist/', import.meta.url).pathname;
-// STUDIO_DB overrides the location (useful when the app folder is on a
-// network mount, where SQLite's file locking is unsupported).
 const db = new DatabaseSync(process.env.STUDIO_DB
   || new URL('./studio.db', import.meta.url).pathname);
 db.exec(`CREATE TABLE IF NOT EXISTS configs (
@@ -33,6 +39,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS configs (
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css',
                '.svg':'image/svg+xml', '.png':'image/png', '.json':'application/json' };
+const SPA_PATHS = new Set(['/', '/photo', '/generate']);
 const cors = res => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
@@ -75,6 +82,12 @@ function attachDraft(model){
   return model;
 }
 
+function saveConfig(cfg){
+  db.prepare('INSERT INTO configs (name, created, cols, rows, yarns, json) VALUES (?,?,?,?,?,?)')
+    .run(cfg.meta?.name || 'untitled', cfg.meta?.created || new Date().toISOString(),
+         cfg.gauge?.cols || 0, cfg.gauge?.rows || 0, cfg.yarns?.length || 0, JSON.stringify(cfg));
+}
+
 createServer(async (req, res) => {
   cors(res);
   if (req.method === 'OPTIONS'){ res.writeHead(204); return res.end(); }
@@ -88,13 +101,47 @@ createServer(async (req, res) => {
     }
     if (url.pathname === '/api/configs' && req.method === 'POST'){
       const cfg = await readBody(req);
-      db.prepare('INSERT INTO configs (name, created, cols, rows, yarns, json) VALUES (?,?,?,?,?,?)')
-        .run(cfg.meta?.name || 'untitled', cfg.meta?.created || new Date().toISOString(),
-             cfg.gauge?.cols || 0, cfg.gauge?.rows || 0, cfg.yarns?.length || 0, JSON.stringify(cfg));
+      saveConfig(cfg);
       return json(res, 201, { ok:true });
     }
 
-    // POST /api/fingerprint — body is a config, or { config, profileIds }
+    // POST /api/transform — photograph → textile config
+    // body: { image:{w,h,data:base64|number[]}, quad?, flatten?, k?, cols?, seed?, name?, save? }
+    if (url.pathname === '/api/transform' && req.method === 'POST'){
+      const body = await readBody(req);
+      if (!body.image) return json(res, 400, { error: 'image payload required' });
+      const result = transformImage({
+        image: body.image,
+        quad: body.quad,
+        flatten: body.flatten,
+        k: body.k,
+        cols: body.cols,
+        seed: body.seed,
+        longSide: body.longSide,
+        name: body.name,
+        tp: body.tp
+      });
+      if (body.save) saveConfig(result.config);
+      return json(res, 200, {
+        config: result.config,
+        transform: result.transform,
+        flat: result.flat
+      });
+    }
+    if (url.pathname === '/api/transform/defaults' && req.method === 'GET'){
+      return json(res, 200, {
+        tool: 'photo',
+        route: '/photo',
+        defaults: TRANSFORM_DEFAULTS,
+        image: {
+          w: 'pixels', h: 'pixels',
+          data: 'base64 RGBA (w*h*4) or number[]',
+          note: 'Client typically downscales max side ≤1500 before upload'
+        },
+        quad: 'optional [[x,y]×4] TL,TR,BR,BL — default inset 5%'
+      });
+    }
+
     if (url.pathname === '/api/fingerprint' && req.method === 'POST'){
       const body = await readBody(req);
       const fps = [];
@@ -105,7 +152,6 @@ createServer(async (req, res) => {
       return json(res, 200, fps.length === 1 ? fps[0] : blendFingerprints(fps));
     }
 
-    // POST /api/generate — { env, profileIds?, fingerprint?, seed?, cols?, rows?, name? }
     if (url.pathname === '/api/generate' && req.method === 'POST'){
       const body = await readBody(req);
       let fp = body.fingerprint || null;
@@ -128,18 +174,14 @@ createServer(async (req, res) => {
         seed: model.generative.seed,
         style: model.generative.style
       });
-      // optionally persist
-      if (body.save){
-        db.prepare('INSERT INTO configs (name, created, cols, rows, yarns, json) VALUES (?,?,?,?,?,?)')
-          .run(cfg.meta.name, cfg.meta.created, cfg.gauge.cols, cfg.gauge.rows,
-               cfg.yarns.length, JSON.stringify(cfg));
-      }
+      if (body.save) saveConfig(cfg);
       return json(res, 200, { config: cfg, generative: model.generative });
     }
 
-    // GET /api/generate/defaults — document the env schema for clients
     if (url.pathname === '/api/generate/defaults' && req.method === 'GET'){
       return json(res, 200, {
+        tool: 'generate',
+        route: '/generate',
         env: ENV_DEFAULTS,
         units: {
           temperature: '°C', humidity: '%', wind: 'm/s',
@@ -169,8 +211,9 @@ createServer(async (req, res) => {
     return json(res, e.status || 400, { error: e.message });
   }
 
-  // static
+  // static + SPA tool routes
   let p = url.pathname === '/' ? '/index.html' : url.pathname;
+  if (SPA_PATHS.has(url.pathname)) p = '/index.html';
   const file = join(ROOT, p);
   if (existsSync(file)){
     res.writeHead(200, {'Content-Type': MIME[extname(file)] || 'application/octet-stream'});

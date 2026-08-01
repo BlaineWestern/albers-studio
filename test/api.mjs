@@ -140,6 +140,34 @@ await withServer(async () => {
      JSON.stringify(b.json.config.yarns.map(y => y.lab)),
      'API palette not deterministic');
 
+  console.log('API · transform (image → textile)');
+  // tiny 8x8 RGBA cloth
+  const w = 32, h = 24;
+  const rgba = Buffer.alloc(w*h*4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const o = (y*w+x)*4;
+    const yarn = ((x>>2)+(y>>2)) & 3;
+    const c = [[60,70,40],[140,120,70],[50,50,40],[200,90,50]][yarn];
+    rgba[o]=c[0]; rgba[o+1]=c[1]; rgba[o+2]=c[2]; rgba[o+3]=255;
+  }
+  const tr = await req('POST', '/api/transform', {
+    image: { w, h, data: rgba.toString('base64') },
+    flatten: true, k: 4, cols: 40, name: 'api-photo', save: true
+  });
+  ok(tr.status === 200, 'transform status '+tr.status);
+  ok(tr.json.config?.schema === 'albers-studio/config@1', 'transform config');
+  ok(tr.json.transform?.schema === 'albers-studio/transform@1', 'transform stamp');
+  ok(tr.json.config.gauge.cols === 40, 'transform cols');
+  ok(tr.json.config.yarns?.length === 4, 'transform yarns');
+  ok(tr.json.config.meta?.source === 'transform', 'transform meta source');
+
+  const td = await req('GET', '/api/transform/defaults');
+  ok(td.status === 200 && td.json.tool === 'photo', 'transform defaults');
+  ok(td.json.route === '/photo', 'transform route documented');
+
+  const badTr = await req('POST', '/api/transform', {});
+  ok(badTr.status === 400, 'transform without image should 400');
+
   console.log('API · extreme env clamps cleanly');
   const extreme = await req('POST', '/api/generate', {
     env: { temperature: 999, humidity: -50, wind: 1000, precipitation: -1, light: 5, season: -2 },

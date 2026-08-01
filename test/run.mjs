@@ -10,6 +10,7 @@ import { modelToSvg } from '../src/pipeline/svg.js';
 import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
 import { generateFromEnv, defaultFingerprint, ENV_DEFAULTS, resolveDesignSpec } from '../src/pipeline/generative.js';
+import { transformImage, defaultQuad, decodeImagePayload } from '../src/pipeline/transform.js';
 import { syntheticCloth } from './fixture.mjs';
 
 let fails = 0;
@@ -263,6 +264,30 @@ console.log('10. default fingerprint + edge envs');
   ok(!badV.ok && badV.flatRowsCols > 0, 'validateDraft should reject flat draft');
 
   console.log(`   default ${m.geometry.cols}x${m.geometry.rows}; seedDiff=${(100*seedDiff/s1.cells.idx.length).toFixed(0)}%; draft ok=${m.structure.validity.ok}`);
+}
+
+console.log('11c. photo transform pipeline (image → textile)');
+{
+  const synImg = syntheticCloth({ pitch: 8, cols: 48, rows: 36, seed: 3 });
+  const result = transformImage({
+    image: synImg.img, flatten: true, k: 5, cols: 60, name: 'syn-photo'
+  });
+  ok(result.config.schema === 'albers-studio/config@1', 'transform config schema');
+  ok(result.config.meta.source === 'transform', 'transform source meta');
+  ok(result.transform.schema === 'albers-studio/transform@1', 'transform stamp');
+  ok(result.model.palette.length === 5, 'transform palette');
+  ok(result.model.geometry.cols === 60, 'transform cols');
+  ok(typeof result.model.draft === 'function', 'transform draft');
+  ok(result.transform.fingerprint?.yarns?.k === 5, 'transform fingerprint');
+  const b64 = Buffer.from(synImg.img.data).toString('base64');
+  const decoded = decodeImagePayload({ w: synImg.img.w, h: synImg.img.h, data: b64 });
+  ok(decoded.w === synImg.img.w && decoded.data.length === synImg.img.data.length, 'decode base64');
+  const q = defaultQuad(100, 80, 0.1);
+  ok(q.length === 4 && q[0][0] === 10, 'default quad');
+  let threw = false;
+  try { transformImage({}); } catch { threw = true; }
+  ok(threw, 'transform without image should throw');
+  console.log(`   transform ${result.model.geometry.cols}x${result.model.geometry.rows}, k=${result.model.palette.length}`);
 }
 
 console.log('11. style transfer: fingerprint steers gauge & yarn count');
