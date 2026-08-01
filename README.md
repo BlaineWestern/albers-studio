@@ -34,9 +34,23 @@ Fingerprints extracted from those profiles steer generative weaves.
 
 - **V1** — archived fat-cell renderer (one square per crossing)
 - **V1.2** — archived two-scale renderer: fine ground + supplementary floats
-- **V2** — draft-based: every yarn's role maps to a lift structure; the render
-  is derived from the binary draft a TC2-class loom could read. Export the
-  draft itself with the Draft button.
+- **V2** — draft-based weave aesthetics (see below)
+
+## Weave aesthetics (V2)
+
+| Mode | Method | Look |
+|------|--------|------|
+| **Flat** | Colour map only | Printed blocks — no interlacing |
+| **Tile** | Binary draft tiles + edge shade | Classic loom-honest V2 |
+| **Ribbon** | Elliptical yarn bodies + gaps | Surface yarn mapping; gaps open with looseness |
+| **Cord** | Radial cylinder shading | Rounder threads (cross-section model) |
+| **Handloom** | Yarn sliding + thickness jitter + tension noise | Irregular handwoven character |
+
+**Tightness** (0.15–1): packed ↔ open — controls yarn fill vs void between warp/weft.
+**Roughness** (0–1): machine-regular ↔ handloom — sliding, thickness jitter, flyaway flecks,
+tension grain (strongest in Handloom mode).
+
+These controls apply in both **Photo** and **Generate** app modes.
 
 ## Generative / environment API
 

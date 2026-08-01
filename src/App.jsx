@@ -6,6 +6,7 @@ import { fidelity } from './pipeline/analyze.js';
 import { renderV1 } from './pipeline/render/v1.js';
 import { renderV12 } from './pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from './pipeline/render/v2.js';
+import { WEAVE_MODES, WEAVE_DEFAULTS } from './pipeline/render/weave.js';
 import { modelToSvg } from './pipeline/svg.js';
 import { generateFromEnv, ENV_DEFAULTS, defaultFingerprint } from './pipeline/generative.js';
 import { buildDraft } from './pipeline/structure.js';
@@ -13,7 +14,7 @@ import { buildDraft } from './pipeline/structure.js';
 const RENDERERS = {
   'V1':   { fn: renderV1,  note: 'archived — fat-cell original' },
   'V1.2': { fn: renderV12, note: 'archived — two-scale floats' },
-  'V2':   { fn: renderV2,  note: 'draft-based (jacquard-style)' },
+  'V2':   { fn: renderV2,  note: 'draft-based weave aesthetics' },
 };
 const API = 'http://localhost:4571/api';
 
@@ -47,6 +48,9 @@ export default function App(){
   const [flat, setFlat] = useState(null);
   const [model, setModel] = useState(null);
   const [version, setVersion] = useState('V2');
+  const [weaveMode, setWeaveMode] = useState(WEAVE_DEFAULTS.mode);
+  const [tightness, setTightness] = useState(0.88);
+  const [roughness, setRoughness] = useState(0.25);
   const [k, setK] = useState(6);
   const [cols, setCols] = useState(0);       // 0 = auto from pitch
   const [fid, setFid] = useState(null);
@@ -129,10 +133,13 @@ export default function App(){
   const render = useCallback(() => {
     if (!model || !outCvs.current || !outBox.current) return;
     const wpx = Math.max(200, outBox.current.getBoundingClientRect().width - 4);
-    const out = RENDERERS[version].fn(model, { targetW: wpx });
+    const weaveOpts = version === 'V2'
+      ? { mode: weaveMode, tightness, roughness, seed: 11 }
+      : {};
+    const out = RENDERERS[version].fn(model, { targetW: wpx, ...weaveOpts });
     imgToCanvas(out, outCvs.current);
     if (flat) setFid(fidelity(flat, out));
-  }, [model, version, flat]);
+  }, [model, version, flat, weaveMode, tightness, roughness]);
 
   useEffect(render, [render]);
   useEffect(() => {
@@ -152,7 +159,9 @@ export default function App(){
   const saveProfile = async () => {
     const name = prompt('Profile name?', 'untitled tapestry');
     if (!name) return;
-    const cfg = modelToConfig(model, { name, renderer: version });
+    const cfg = modelToConfig(model, {
+      name, renderer: version, weave: { mode: weaveMode, tightness, roughness }
+    });
     try {
       await fetch(API+'/configs', { method:'POST',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
@@ -213,7 +222,7 @@ export default function App(){
 
   /* ── exports ── */
   const dl = (name, href) => { const a=document.createElement('a'); a.download=name; a.href=href; a.click(); };
-  const savePng = () => dl('tapestry-'+version+'.png', outCvs.current.toDataURL('image/png'));
+  const savePng = () => dl('tapestry-'+version+'-'+weaveMode+'.png', outCvs.current.toDataURL('image/png'));
   const saveSvg = () => dl('tapestry-layers.svg',
     'data:image/svg+xml,'+encodeURIComponent(modelToSvg(model)));
   const saveDraft = () => {
@@ -244,7 +253,9 @@ export default function App(){
             <button key={v} className={v===version?'on':''} onClick={()=>setVersion(v)}>{v}</button>)}
         </div>
       </header>
-      <div className="vnote">{RENDERERS[version].note}
+      <div className="vnote">{version === 'V2'
+          ? (WEAVE_MODES[weaveMode]?.note || RENDERERS.V2.note)
+          : RENDERERS[version].note}
         <span className="db">{dbUp ? ' · db connected' : ' · db offline (start: node server.js) — saves fall back to JSON'}</span>
       </div>
 
@@ -350,10 +361,34 @@ export default function App(){
         </section>
 
         <section>
-          <div className="plabel">3 · Tapestry — {version}</div>
+          <div className="plabel">3 · Tapestry — {version}{version==='V2' ? ' / '+weaveMode : ''}</div>
           <div ref={outBox} className={'stage grow'+(model?'':' empty')}>
             {model && <canvas ref={outCvs}/>}
           </div>
+          {version === 'V2' && (
+            <div className="weave-controls">
+              <div className="vtoggle weave-modes">
+                {Object.entries(WEAVE_MODES).map(([id, m]) =>
+                  <button key={id} className={id===weaveMode?'on':''}
+                          onClick={()=>setWeaveMode(id)} title={m.note}>{m.label}</button>)}
+              </div>
+              <div className="bar weave-sliders">
+                <label className="env-row tight-row">
+                  <span>Tightness</span>
+                  <input type="range" min="0.15" max="1" step="0.01" value={tightness}
+                         onChange={e=>setTightness(+e.target.value)}/>
+                  <em>{tightness.toFixed(2)}</em>
+                </label>
+                <label className="env-row tight-row">
+                  <span>Roughness</span>
+                  <input type="range" min="0" max="1" step="0.01" value={roughness}
+                         onChange={e=>setRoughness(+e.target.value)}
+                         title="Handloom irregularity — yarn slide, thickness jitter, tension"/>
+                  <em>{roughness.toFixed(2)}</em>
+                </label>
+              </div>
+            </div>
+          )}
           <div className="bar">
             <button disabled={!model} onClick={savePng}>PNG</button>
             <button disabled={!model} onClick={saveSvg}>SVG (layers)</button>

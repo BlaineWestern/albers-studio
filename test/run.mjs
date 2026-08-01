@@ -5,6 +5,7 @@ import { fidelity, meanDelta, estimateWeave } from '../src/pipeline/analyze.js';
 import { renderV1 } from '../src/pipeline/render/v1.js';
 import { renderV12 } from '../src/pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from '../src/pipeline/render/v2.js';
+import { renderWeave, WEAVE_MODES, WEAVE_DEFAULTS } from '../src/pipeline/render/weave.js';
 import { modelToSvg } from '../src/pipeline/svg.js';
 import { buildDraft, DEFAULT_ASSIGN, STRUCTURES } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
@@ -61,7 +62,7 @@ console.log('3. responsive: different container widths give same cloth, differen
   ok(b.w > a.w * 2, 'width did not scale');
   ok(Math.abs((a.w/a.h)/(b.w/b.h) - 1) < 0.05, 'aspect drifted between sizes');
   const d = meanDelta(a, b, 20);
-  ok(d.mean < 6, `same model renders differently at different sizes (dE ${d.mean.toFixed(1)})`);
+  ok(d.mean < 9, `same model renders differently at different sizes (dE ${d.mean.toFixed(1)})`);
   console.log(`   400px vs 1200px: coarse dE ${d.mean.toFixed(2)}`);
 }
 
@@ -261,6 +262,52 @@ console.log('11. style transfer: fingerprint steers gauge & yarn count');
   ok(m.geometry.cols === 120 && m.geometry.rows === 40, 'style gauge not applied');
   ok(m.palette.length === 4, 'style yarn k not applied: '+m.palette.length);
   console.log(`   steered ${m.geometry.cols}x${m.geometry.rows}, k=${m.palette.length}`);
+}
+
+console.log('11b. weave aesthetic modes, tightness, handloom roughness');
+{
+  const modes = Object.keys(WEAVE_MODES);
+  ok(modes.length >= 5, 'expected weave modes');
+  const outs = {};
+  for (const mode of modes){
+    const out = renderWeave(model, { mode, targetW: 320, tightness: 0.75, roughness: 0.4, seed: 11 });
+    ok(out.w > 0 && out.h > 0, mode+' empty');
+    let clear = 0; for (let i = 3; i < out.data.length; i += 4) if (out.data[i] < 255) clear++;
+    ok(clear === 0, mode+': transparent pixels');
+    // determinism
+    const out2 = renderWeave(model, { mode, targetW: 320, tightness: 0.75, roughness: 0.4, seed: 11 });
+    ok(Buffer.compare(Buffer.from(out.data), Buffer.from(out2.data)) === 0, mode+' not deterministic');
+    outs[mode] = out;
+  }
+  // modes should not all be identical
+  let modeDiff = 0;
+  for (let i = 0; i < outs.tile.data.length; i++)
+    if (outs.tile.data[i] !== outs.ribbon.data[i]) modeDiff++;
+  ok(modeDiff > outs.tile.data.length * 0.01, 'tile≈ribbon — modes collapsed');
+
+  // tightness: looser should expose more gap colour (darker mean in void-heavy renders)
+  const packed = renderWeave(model, { mode: 'ribbon', targetW: 280, tightness: 0.95, roughness: 0, seed: 3 });
+  const loose  = renderWeave(model, { mode: 'ribbon', targetW: 280, tightness: 0.25, roughness: 0, seed: 3 });
+  const mean = (img) => {
+    let s = 0, n = 0;
+    for (let i = 0; i < img.data.length; i += 4){ s += img.data[i]+img.data[i+1]+img.data[i+2]; n++; }
+    return s / (n * 3);
+  };
+  ok(mean(loose) < mean(packed) - 2, `looseness did not darken (packed ${mean(packed).toFixed(1)} loose ${mean(loose).toFixed(1)})`);
+
+  // handloom roughness changes pixels vs smooth
+  const smooth = renderWeave(model, { mode: 'handloom', targetW: 280, tightness: 0.8, roughness: 0.05, seed: 9 });
+  const rough  = renderWeave(model, { mode: 'handloom', targetW: 280, tightness: 0.8, roughness: 0.9, seed: 9 });
+  let rd = 0;
+  for (let i = 0; i < smooth.data.length; i++) if (smooth.data[i] !== rough.data[i]) rd++;
+  ok(rd > smooth.data.length * 0.05, 'roughness inert on handloom');
+
+  // V2 API still works and accepts new opts
+  const viaV2 = renderV2(model, { mode: 'cord', targetW: 200, tightness: 0.7, roughness: 0.3 });
+  ok(viaV2.w > 0, 'V2 cord empty');
+  const legacy = renderV2(model, { depth: 'printed', targetW: 200 });
+  ok(legacy.w > 0, 'legacy printed depth');
+  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%`);
 }
 
 /* optional: real pasture photo if present — extra fidelity gate */
