@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { newImg, sampleBilinear } from './pipeline/core.js';
 import { warpQuad, quadAspect } from './pipeline/geometry.js';
 import { buildModel } from './pipeline/model.js';
 import { modelToConfig, configToModel } from './pipeline/config.js';
@@ -8,6 +7,8 @@ import { renderV1 } from './pipeline/render/v1.js';
 import { renderV12 } from './pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from './pipeline/render/v2.js';
 import { modelToSvg } from './pipeline/svg.js';
+import { generateFromEnv, ENV_DEFAULTS, defaultFingerprint } from './pipeline/generative.js';
+import { buildDraft } from './pipeline/structure.js';
 
 const RENDERERS = {
   'V1':   { fn: renderV1,  note: 'archived — fat-cell original' },
@@ -15,6 +16,21 @@ const RENDERERS = {
   'V2':   { fn: renderV2,  note: 'draft-based (jacquard-style)' },
 };
 const API = 'http://localhost:4571/api';
+
+const ENV_FIELDS = [
+  { key:'temperature',   label:'Temp °C',   min:-5, max:35,  step:0.5 },
+  { key:'humidity',      label:'Humidity %', min:0,  max:100, step:1 },
+  { key:'wind',          label:'Wind m/s',  min:0,  max:20,  step:0.5 },
+  { key:'precipitation', label:'Precip mm', min:0,  max:40,  step:0.5 },
+  { key:'light',         label:'Light',     min:0,  max:1,   step:0.05 },
+  { key:'season',        label:'Season',    min:0,  max:1,   step:0.05 },
+];
+
+function attachDraft(m){
+  m.draft = () => buildDraft(m.cells.idx, m.geometry.cols, m.geometry.rows,
+    m.palette.map(y => y.role), m.structure.assign, 2);
+  return m;
+}
 
 const imgToCanvas = (img, cvs) => {
   cvs.width = img.w; cvs.height = img.h;
@@ -25,6 +41,7 @@ const imgToCanvas = (img, cvs) => {
 };
 
 export default function App(){
+  const [mode, setMode] = useState('photo'); // photo | generate
   const [src, setSrc] = useState(null);
   const [quad, setQuad] = useState(null);
   const [flat, setFlat] = useState(null);
@@ -36,6 +53,10 @@ export default function App(){
   const [profiles, setProfiles] = useState([]);
   const [dbUp, setDbUp] = useState(false);
   const [busy, setBusy] = useState('');
+  const [env, setEnv] = useState({ ...ENV_DEFAULTS });
+  const [styleIds, setStyleIds] = useState([]);
+  const [genSeed, setGenSeed] = useState(42);
+  const [genInfo, setGenInfo] = useState(null);
   const srcCvs = useRef(), outCvs = useRef(), outBox = useRef(), fileRef = useRef();
   const drag = useRef(-1);
 
@@ -147,13 +168,47 @@ export default function App(){
   const loadProfile = async (id) => {
     const r = await fetch(`${API}/configs/${id}`);
     const cfg = await r.json();
-    const m = configToModel(cfg.json ? JSON.parse(cfg.json) : cfg);
-    // reattach draft builder for V2
-    import('./pipeline/structure.js').then(({ buildDraft }) => {
-      m.draft = () => buildDraft(m.cells.idx, m.geometry.cols, m.geometry.rows,
-        m.palette.map(y=>y.role), m.structure.assign, 2);
-      setModel(m); setFlat(null); setFid(null);
-    });
+    const m = attachDraft(configToModel(cfg.json ? JSON.parse(cfg.json) : cfg));
+    setModel(m); setFlat(null); setFid(null); setGenInfo(null);
+  };
+
+  const toggleStyle = (id) => {
+    setStyleIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+  };
+
+  const doGenerate = async () => {
+    setBusy('generating…');
+    try {
+      let m, info;
+      if (dbUp){
+        const r = await fetch(API+'/generate', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            env, profileIds: styleIds, seed: genSeed,
+            cols: cols || undefined, name: 'env tapestry'
+          })
+        });
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error || 'generate failed');
+        m = attachDraft(configToModel(body.config));
+        info = body.generative;
+      } else {
+        // offline: fingerprint any locally unavailable; use default / blended nothing
+        let fp = defaultFingerprint();
+        if (styleIds.length && profiles.length){
+          // without db we cannot reload full configs; fall back to default
+          fp = defaultFingerprint();
+        }
+        m = generateFromEnv({ env, fingerprint: fp, seed: genSeed, cols: cols || undefined });
+        info = m.generative;
+      }
+      setModel(m); setFlat(null); setFid(null); setGenInfo(info);
+    } catch (e){
+      setBusy('');
+      alert(e.message);
+      return;
+    }
+    setBusy('');
   };
 
   /* ── exports ── */
@@ -177,7 +232,13 @@ export default function App(){
     <div className="app">
       <header>
         <h1>Albers Studio</h1>
-        <span className="sub">photograph → layered weave model → tapestry</span>
+        <span className="sub">{mode === 'photo'
+          ? 'photograph → layered weave model → tapestry'
+          : 'environment + rug style → generative tapestry'}</span>
+        <div className="vtoggle modes">
+          <button className={mode==='photo'?'on':''} onClick={()=>setMode('photo')}>Photo</button>
+          <button className={mode==='generate'?'on':''} onClick={()=>setMode('generate')}>Generate</button>
+        </div>
         <div className="vtoggle">
           {Object.keys(RENDERERS).map(v =>
             <button key={v} className={v===version?'on':''} onClick={()=>setVersion(v)}>{v}</button>)}
@@ -188,45 +249,97 @@ export default function App(){
       </div>
 
       <div className="cols3">
-        <section>
-          <div className="plabel">1 · Source & corners</div>
-          <div className={'stage'+(src?'':' empty')}
-               onClick={e=>{ if(!src) fileRef.current.click(); }}
-               onDragOver={e=>e.preventDefault()}
-               onDrop={e=>{e.preventDefault(); loadFile(e.dataTransfer.files[0]);}}>
-            {src && <canvas ref={srcCvs}
-              onPointerDown={e=>{ const [x,y]=toImg(e);
-                let b=-1,bd=1e9; quad.forEach(([qx,qy],i)=>{const d=Math.hypot(qx-x,qy-y); if(d<bd){bd=d;b=i;}});
-                if (bd < Math.max(28, src.w/26)){ drag.current=b; e.target.setPointerCapture(e.pointerId); } }}
-              onPointerMove={e=>{ if(drag.current<0) return; const [x,y]=toImg(e);
-                setQuad(q=>q.map((p,i)=>i===drag.current?[Math.max(0,Math.min(src.w,x)),Math.max(0,Math.min(src.h,y))]:p)); }}
-              onPointerUp={()=>{ drag.current=-1; }}/>}
-          </div>
-          <div className="bar">
-            <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
-                   onChange={e=>loadFile(e.target.files[0])}/>
-            <button onClick={()=>fileRef.current.click()}>Open image</button>
-            <button disabled={!src} onClick={doFlatten}>Flatten</button>
-          </div>
-        </section>
+        {mode === 'photo' ? (
+          <section>
+            <div className="plabel">1 · Source & corners</div>
+            <div className={'stage'+(src?'':' empty')}
+                 onClick={e=>{ if(!src) fileRef.current.click(); }}
+                 onDragOver={e=>e.preventDefault()}
+                 onDrop={e=>{e.preventDefault(); loadFile(e.dataTransfer.files[0]);}}>
+              {src && <canvas ref={srcCvs}
+                onPointerDown={e=>{ const [x,y]=toImg(e);
+                  let b=-1,bd=1e9; quad.forEach(([qx,qy],i)=>{const d=Math.hypot(qx-x,qy-y); if(d<bd){bd=d;b=i;}});
+                  if (bd < Math.max(28, src.w/26)){ drag.current=b; e.target.setPointerCapture(e.pointerId); } }}
+                onPointerMove={e=>{ if(drag.current<0) return; const [x,y]=toImg(e);
+                  setQuad(q=>q.map((p,i)=>i===drag.current?[Math.max(0,Math.min(src.w,x)),Math.max(0,Math.min(src.h,y))]:p)); }}
+                onPointerUp={()=>{ drag.current=-1; }}/>}
+            </div>
+            <div className="bar">
+              <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
+                     onChange={e=>loadFile(e.target.files[0])}/>
+              <button onClick={()=>fileRef.current.click()}>Open image</button>
+              <button disabled={!src} onClick={doFlatten}>Flatten</button>
+            </div>
+          </section>
+        ) : (
+          <section>
+            <div className="plabel">1 · Environment</div>
+            <div className="stage env-panel">
+              {ENV_FIELDS.map(f =>
+                <label key={f.key} className="env-row">
+                  <span>{f.label}</span>
+                  <input type="range" min={f.min} max={f.max} step={f.step}
+                         value={env[f.key]}
+                         onChange={e=>setEnv(v => ({...v, [f.key]:+e.target.value}))}/>
+                  <em>{Number(env[f.key]).toFixed(f.step < 1 ? 2 : 0)}</em>
+                </label>)}
+            </div>
+            <div className="bar">
+              <label>Seed <input type="number" min="0" max="999999" value={genSeed}
+                     onChange={e=>setGenSeed(+e.target.value||0)}/></label>
+              <button onClick={()=>setEnv({...ENV_DEFAULTS})}>Reset env</button>
+            </div>
+          </section>
+        )}
 
         <section>
-          <div className="plabel">2 · Model</div>
-          <div className={'stage'+(flat?'':' empty')}>
-            {flat && <canvas ref={c=>{ if(c) imgToCanvas(flat,c); }}/>}
-          </div>
-          <div className="bar">
-            <label>Yarns <input type="range" min="2" max="10" value={k}
-                   onChange={e=>setK(+e.target.value)}/> {k}</label>
-            <label>Threads <input type="number" min="0" max="300" value={cols} placeholder="auto"
-                   onChange={e=>setCols(+e.target.value)} title="0 = auto from measured pitch"/></label>
-            <button disabled={!flat} onClick={doProcess}>{busy||'Process'}</button>
-          </div>
+          <div className="plabel">{mode === 'photo' ? '2 · Model' : '2 · Style from rugs'}</div>
+          {mode === 'photo' ? (
+            <>
+              <div className={'stage'+(flat?'':' empty')}>
+                {flat && <canvas ref={c=>{ if(c) imgToCanvas(flat,c); }}/>}
+              </div>
+              <div className="bar">
+                <label>Yarns <input type="range" min="2" max="10" value={k}
+                       onChange={e=>setK(+e.target.value)}/> {k}</label>
+                <label>Threads <input type="number" min="0" max="300" value={cols} placeholder="auto"
+                       onChange={e=>setCols(+e.target.value)} title="0 = auto from measured pitch"/></label>
+                <button disabled={!flat} onClick={doProcess}>{busy||'Process'}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={'stage'+(profiles.length?'':' empty gen-empty')}>
+                {profiles.length > 0 && <div className="style-list">
+                  <p className="hint">Select one or more saved rugs — their fingerprints
+                    (gauge, palette, floats, spatial priors) steer the generative weave.
+                    None selected → built-in default style.</p>
+                  {profiles.map(p =>
+                    <label key={p.id} className={'style-item'+(styleIds.includes(p.id)?' on':'')}>
+                      <input type="checkbox" checked={styleIds.includes(p.id)}
+                             onChange={()=>toggleStyle(p.id)}/>
+                      <span>{p.name}</span>
+                      <em>{p.cols}×{p.rows} · {p.yarns}y</em>
+                      <button type="button" className="tiny" onClick={e=>{e.preventDefault(); loadProfile(p.id);}}>
+                        peek
+                      </button>
+                    </label>)}
+                </div>}
+              </div>
+              <div className="bar">
+                <label>Threads <input type="number" min="0" max="300" value={cols} placeholder="auto"
+                       onChange={e=>setCols(+e.target.value)} title="0 = use fingerprint gauge"/></label>
+                <button onClick={doGenerate}>{busy||'Generate'}</button>
+              </div>
+            </>
+          )}
           {model && <div className="readout">
-            {model.geometry.pitch.confX >= 0.04
-              ? <>measured pitch {model.geometry.pitch.pitchX.toFixed(1)}px → {model.geometry.cols} threads</>
-              : <>no confident pitch — {model.geometry.cols} threads (manual)</>}
-            <br/>{model.geometry.cols}×{model.geometry.rows} · weft/warp {model.geometry.wefted.toFixed(2)}
+            {genInfo
+              ? <>generative · style {genInfo.style} · seed {genInfo.seed}<br/></>
+              : model.geometry.pitch.confX >= 0.04
+                ? <>measured pitch {model.geometry.pitch.pitchX.toFixed(1)}px → {model.geometry.cols} threads<br/></>
+                : <>{mode==='photo' ? 'no confident pitch — ' : ''}{model.geometry.cols} threads<br/></>}
+            {model.geometry.cols}×{model.geometry.rows} · weft/warp {model.geometry.wefted.toFixed(2)}
             {yarnBar}
             {model.palette.map((y,i) =>
               <div key={i} className="yline">
@@ -250,7 +363,7 @@ export default function App(){
           {fid && <div className="readout">
             fidelity: mean dE {fid.mean.toFixed(1)} · band r {fid.rows.toFixed(3)}
           </div>}
-          {profiles.length > 0 && <div className="readout">
+          {profiles.length > 0 && mode === 'photo' && <div className="readout">
             <b>Profiles</b>
             {profiles.map(p =>
               <div key={p.id} className="yline">
