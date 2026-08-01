@@ -8,10 +8,12 @@
    cord     radial cylinder shading across the thread (cross-section model)
    handloom ribbon/cord + yarn sliding, thickness jitter, tension noise
             (FabricGen-style irregularity for handwoven character)
+   fringe   cord body + warp/weft threads extending past the cloth edge
 
    Shared knobs:
      tightness  0..1  packed ↔ open (space between warp and weft)
      roughness  0..1  machine-regular ↔ handloom irregular
+     border     0..1  fringe extension beyond sides (0 = no border)
 */
 import { newImg, fillRect, clamp255, clamp01, mulberry32, nz, oklabToRgb } from '../core.js';
 
@@ -20,13 +22,15 @@ export const WEAVE_MODES = {
   tile:     { label: 'Tile',     note: 'draft tiles + crossing shade (loom-honest)' },
   ribbon:   { label: 'Ribbon',   note: 'elliptical yarns with gaps between threads' },
   cord:     { label: 'Cord',     note: 'cylindrical thread shading' },
-  handloom: { label: 'Handloom', note: 'yarn slide + thickness jitter + tension noise' }
+  handloom: { label: 'Handloom', note: 'yarn slide + thickness jitter + tension noise' },
+  fringe:   { label: 'Fringe',   note: 'warp/weft threads extend past the cloth as a border' }
 };
 
 export const WEAVE_DEFAULTS = {
   mode: 'tile',
   tightness: 1,      // packed by default (classic V2); loosen to open gaps
   roughness: 0.35,   // used strongly by handloom; mild elsewhere
+  border: 0,         // fringe extension; 0 = cloth only (no border)
   seed: 11,
   gapRgb: [28, 26, 23]  // void between yarns when loosened
 };
@@ -54,14 +58,16 @@ function yarnFill(tightness, rough, seed, id){
  * Draft-derived weave render with aesthetic modes.
  * @param {object} model
  * @param {object} [opt]
- * @param {string} [opt.mode] flat|tile|ribbon|cord|handloom
+ * @param {string} [opt.mode] flat|tile|ribbon|cord|handloom|fringe
  * @param {number} [opt.tightness] 0..1
  * @param {number} [opt.roughness] 0..1
+ * @param {number} [opt.border] 0..1 fringe extension (0 = no border)
  */
 export function renderWeave(model, opt = {}){
   const mode = opt.mode ?? WEAVE_DEFAULTS.mode;
   if (mode === 'flat') return renderFlat(model, opt);
   if (mode === 'tile') return renderTile(model, opt);
+  if (mode === 'fringe') return renderFringe(model, opt);
   // ribbon / cord / handloom share the gap+body painter
   return renderYarnBodies(model, { ...opt, mode });
 }
@@ -232,6 +238,100 @@ function renderYarnBodies(model, opt){
     const n = (rnd() - 0.5) * grain;
     d[i]=clamp255(d[i]+n); d[i+1]=clamp255(d[i+1]+n); d[i+2]=clamp255(d[i+2]+n);
   }
+  return out;
+}
+
+/* ── Fringe: cord body + warp/weft threads extending past the cloth ──
+   border 0 → identical cloth footprint (no pad). border 1 → full fringe. */
+function renderFringe(model, opt){
+  const border = clamp01(opt.border ?? WEAVE_DEFAULTS.border);
+  const body = renderYarnBodies(model, { ...opt, mode: 'cord' });
+  if (border <= 0) return body;
+
+  const { cols, rows } = model.geometry;
+  const idx = model.cells.idx;
+  const rgb = model.palette.map(y => y.rgb);
+  const { W, H, tp } = model.draft ? model.draft() : opt.draft;
+  const cw = opt.cellW ?? Math.max(2, (opt.targetW ?? 900) / cols);
+  const ch = cw * (model.geometry.wefted ?? 0.86);
+  const tw = cw / tp, th = ch / tp;
+  const seed = opt.seed ?? WEAVE_DEFAULTS.seed;
+  const rough = clamp01(opt.roughness ?? WEAVE_DEFAULTS.roughness);
+  const gap = opt.gapRgb ?? WEAVE_DEFAULTS.gapRgb;
+  const warpC = warpColour(model);
+  const tight = clamp01(opt.tightness ?? WEAVE_DEFAULTS.tightness);
+
+  // Extension depth in pixels — scales with border; ~22% of short side at 1.0
+  const maxPad = Math.max(6, Math.round(Math.min(body.w, body.h) * 0.22));
+  const pad = Math.max(1, Math.round(maxPad * border));
+  const out = newImg(body.w + pad * 2, body.h + pad * 2);
+  fillRect(out, 0, 0, out.w, out.h, gap);
+
+  // Blit cloth body into the centre
+  const bd = body.data, od = out.data;
+  for (let y = 0; y < body.h; y++){
+    for (let x = 0; x < body.w; x++){
+      const si = (y * body.w + x) * 4;
+      const di = ((y + pad) * out.w + (x + pad)) * 4;
+      od[di] = bd[si]; od[di+1] = bd[si+1]; od[di+2] = bd[si+2]; od[di+3] = 255;
+    }
+  }
+
+  // Warp fringe — vertical threads past top & bottom
+  for (let fx = 0; fx < W; fx++){
+    const thk = yarnFill(tight, rough * 0.5, seed ^ 0xF11, fx);
+    const bodyW = Math.max(1, tw * thk);
+    const x0 = pad + fx * tw + (tw - bodyW) * 0.5;
+    // length jitter per end
+    const lenScale = 0.65 + slide1(seed, 91, fx * 0.7) * 0.35 * (1 + rough * 0.4);
+    const ext = Math.max(1, pad * lenScale);
+    paintYarnStrip(out, x0, pad - ext, bodyW, ext + 0.5, warpC, {
+      axis: 'v', cord: true, dive: 0.92, seed, fx, fy: -1, rough: rough * 0.6, mode: 'fringe'
+    });
+    paintYarnStrip(out, x0, pad + body.h - 0.5, bodyW, ext + 0.5, warpC, {
+      axis: 'v', cord: true, dive: 0.92, seed, fx, fy: H, rough: rough * 0.6, mode: 'fringe'
+    });
+  }
+
+  // Weft fringe — horizontal threads past left & right (use edge cell yarn)
+  for (let fy = 0; fy < H; fy++){
+    const cy = Math.min(rows - 1, (fy / tp) | 0);
+    const leftYarn = rgb[idx[cy * cols + 0]];
+    const rightYarn = rgb[idx[cy * cols + (cols - 1)]];
+    const thk = yarnFill(tight, rough * 0.5, seed ^ 0xF22, fy);
+    const bodyH = Math.max(1, th * thk);
+    const y0 = pad + fy * th + (th - bodyH) * 0.5;
+    const lenScale = 0.65 + slide1(seed, 92, fy * 0.7) * 0.35 * (1 + rough * 0.4);
+    const ext = Math.max(1, pad * lenScale);
+    paintYarnStrip(out, pad - ext, y0, ext + 0.5, bodyH, leftYarn, {
+      axis: 'h', cord: true, dive: 0.9, seed, fx: -1, fy, rough: rough * 0.6, mode: 'fringe'
+    });
+    paintYarnStrip(out, pad + body.w - 0.5, y0, ext + 0.5, bodyH, rightYarn, {
+      axis: 'h', cord: true, dive: 0.9, seed, fx: W, fy, rough: rough * 0.6, mode: 'fringe'
+    });
+  }
+
+  // Soften fringe tips with a light taper darken near outer edge
+  for (let y = 0; y < out.h; y++){
+    for (let x = 0; x < out.w; x++){
+      const inBody = x >= pad && x < pad + body.w && y >= pad && y < pad + body.h;
+      if (inBody) continue;
+      const dx = x < pad ? (pad - x) / pad
+        : x >= pad + body.w ? (x - (pad + body.w - 1)) / pad : 0;
+      const dy = y < pad ? (pad - y) / pad
+        : y >= pad + body.h ? (y - (pad + body.h - 1)) / pad : 0;
+      const edge = Math.max(dx, dy);
+      if (edge <= 0) continue;
+      const fade = 1 - edge * 0.35;
+      const o = (y * out.w + x) * 4;
+      // only fade painted fringe (not pure gap)
+      if (od[o] === gap[0] && od[o+1] === gap[1] && od[o+2] === gap[2]) continue;
+      od[o] = clamp255(od[o] * fade);
+      od[o+1] = clamp255(od[o+1] * fade);
+      od[o+2] = clamp255(od[o+2] * fade);
+    }
+  }
+
   return out;
 }
 

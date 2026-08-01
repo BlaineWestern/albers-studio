@@ -388,7 +388,21 @@ console.log('11b. weave aesthetic modes, tightness, handloom roughness');
   ok(viaV2.w > 0, 'V2 cord empty');
   const legacy = renderV2(model, { depth: 'printed', targetW: 200 });
   ok(legacy.w > 0, 'legacy printed depth');
-  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%`);
+
+  // Fringe mode: border 0 = cloth-only size; border > 0 extends canvas
+  ok(modes.includes('fringe'), 'fringe mode missing');
+  const fringe0 = renderWeave(model, { mode: 'fringe', border: 0, targetW: 280, tightness: 0.85, roughness: 0.2, seed: 5 });
+  const cordRef = renderWeave(model, { mode: 'cord', targetW: 280, tightness: 0.85, roughness: 0.2, seed: 5 });
+  ok(fringe0.w === cordRef.w && fringe0.h === cordRef.h, 'fringe border=0 should match cord footprint');
+  ok(Buffer.compare(Buffer.from(fringe0.data), Buffer.from(cordRef.data)) === 0, 'fringe border=0 pixels ≠ cord');
+  const fringe1 = renderWeave(model, { mode: 'fringe', border: 0.6, targetW: 280, tightness: 0.85, roughness: 0.2, seed: 5 });
+  ok(fringe1.w > fringe0.w && fringe1.h > fringe0.h, 'fringe border should enlarge canvas');
+  const fringe1b = renderWeave(model, { mode: 'fringe', border: 0.6, targetW: 280, tightness: 0.85, roughness: 0.2, seed: 5 });
+  ok(Buffer.compare(Buffer.from(fringe1.data), Buffer.from(fringe1b.data)) === 0, 'fringe not deterministic');
+  const viaConstruct = constructTapestry(model, { mode: 'fringe', border: 0.5, targetW: 200, seed: 5 });
+  ok(viaConstruct.w > cordRef.w * 200/280 - 2, 'constructTapestry fringe border');
+
+  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}`);
 }
 
 console.log('13. structure library, repair, draft-ops, DesignSpec, WIF');

@@ -17,6 +17,7 @@ export function PhotoTool(){
   const [weaveMode, setWeaveMode] = useState(WEAVE_DEFAULTS.mode);
   const [tightness, setTightness] = useState(0.88);
   const [roughness, setRoughness] = useState(0.25);
+  const [border, setBorder] = useState(WEAVE_DEFAULTS.border);
   const [k, setK] = useState(6);
   const [cols, setCols] = useState(0);
   const [fid, setFid] = useState(null);
@@ -135,11 +136,11 @@ export function PhotoTool(){
     if (!model || !outCvs.current || !outBox.current) return;
     const wpx = Math.max(200, outBox.current.getBoundingClientRect().width - 4);
     const out = constructTapestry(model, {
-      renderer: 'V2', mode: weaveMode, tightness, roughness, seed: 11, targetW: wpx
+      renderer: 'V2', mode: weaveMode, tightness, roughness, border, seed: 11, targetW: wpx
     });
     imgToCanvas(out, outCvs.current);
     if (flat?.data) setFid(fidelity(flat, out));
-  }, [model, flat, weaveMode, tightness, roughness]);
+  }, [model, flat, weaveMode, tightness, roughness, border]);
 
   useEffect(render, [render]);
   useEffect(() => {
@@ -241,6 +242,7 @@ export function PhotoTool(){
           weaveMode={weaveMode} setWeaveMode={setWeaveMode}
           tightness={tightness} setTightness={setTightness}
           roughness={roughness} setRoughness={setRoughness}
+          border={border} setBorder={setBorder}
           outCvs={outCvs} outBox={outBox} fid={fid}
           profiles={profiles} onLoadProfile={loadProfile} showProfiles
           onSaved={refresh}

@@ -45,6 +45,15 @@ test.describe('generate tool', () => {
     await page.getByTestId('weave-mode-ribbon').click();
     await expect(page.getByTestId('weave-mode-ribbon')).toHaveClass(/on/);
     await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
+
+    // Fringe mode + border control
+    await page.getByTestId('weave-mode-fringe').click();
+    await expect(page.getByTestId('weave-mode-fringe')).toHaveClass(/on/);
+    await expect(page.getByTestId('border-slider')).toBeEnabled();
+    await page.getByTestId('border-slider').fill('0');
+    await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
+    await page.getByTestId('border-slider').fill('0.7');
+    await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
   });
 
   test('construction exports stay enabled after generate', async ({ page }) => {

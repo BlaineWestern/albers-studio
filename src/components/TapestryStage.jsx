@@ -11,6 +11,7 @@ import { API, download, imgToCanvas } from '../shared.js';
 export function TapestryStage({
   model,
   weaveMode, setWeaveMode, tightness, setTightness, roughness, setRoughness,
+  border, setBorder,
   outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved,
   constructionNote, provenance
 }){
@@ -27,7 +28,7 @@ export function TapestryStage({
   };
   const saveProvenance = () => {
     const blob = provenance || model?.generative?.provenance || {
-      tool: 'studio', weave: { mode: weaveMode, tightness, roughness }
+      tool: 'studio', weave: { mode: weaveMode, tightness, roughness, border }
     };
     download('provenance.json',
       'data:application/json,'+encodeURIComponent(JSON.stringify(blob, null, 2)));
@@ -49,7 +50,7 @@ export function TapestryStage({
       tool: model.generative ? 'generate' : 'photo',
       source: model.generative ? 'generative' : 'transform',
       designSpec: model.generative?.designSpec,
-      weave: { mode: weaveMode, tightness, roughness },
+      weave: { mode: weaveMode, tightness, roughness, border },
       env: model.generative?.env,
       seed: model.generative?.seed,
       style: model.generative?.style
@@ -77,7 +78,11 @@ export function TapestryStage({
           {Object.entries(WEAVE_MODES).map(([id, m]) =>
             <button key={id} className={id===weaveMode?'on':''}
                     data-testid={`weave-mode-${id}`}
-                    onClick={()=>setWeaveMode(id)} title={m.note}>{m.label}</button>)}
+                    onClick={()=>{
+                      setWeaveMode(id);
+                      // First visit to fringe: give a visible border so the mode reads
+                      if (id === 'fringe' && border <= 0) setBorder(0.4);
+                    }} title={m.note}>{m.label}</button>)}
         </div>
         <div className="bar weave-sliders">
           <label className="env-row tight-row">
@@ -92,7 +97,17 @@ export function TapestryStage({
                    onChange={e=>setRoughness(+e.target.value)}/>
             <em>{roughness.toFixed(2)}</em>
           </label>
+          <label className="env-row tight-row" title="Fringe extension past the cloth. 0 = no border.">
+            <span>Border</span>
+            <input type="range" min="0" max="1" step="0.01" value={border}
+                   data-testid="border-slider"
+                   disabled={weaveMode !== 'fringe'}
+                   onChange={e=>setBorder(+e.target.value)}/>
+            <em>{border.toFixed(2)}</em>
+          </label>
         </div>
+        {weaveMode === 'fringe' && border <= 0 &&
+          <div className="plabel">Border 0 · cloth only (no fringe)</div>}
       </div>
       <div className="bar">
         <button disabled={!model} onClick={savePng}>PNG</button>

@@ -64,7 +64,7 @@ Env fields: `temperature` (°C), `humidity` (%), `wind` (m/s),
 
 ## Weave aesthetics (V2)
 
-Flat · Tile · Ribbon · Cord · Handloom, plus **Tightness** and **Roughness**.
+Flat · Tile · Ribbon · Cord · Handloom · **Fringe**, plus **Tightness**, **Roughness**, and **Border** (fringe extension; `0` = no border).
 
 ## Tests
 
