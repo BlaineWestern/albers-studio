@@ -402,7 +402,30 @@ console.log('11b. weave aesthetic modes, tightness, handloom roughness');
   const viaConstruct = constructTapestry(model, { mode: 'fringe', border: 0.5, targetW: 200, seed: 5 });
   ok(viaConstruct.w > cordRef.w * 200/280 - 2, 'constructTapestry fringe border');
 
-  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}`);
+  // borderRoughness affects fringe only — cloth body stays stable when borderRough changes
+  const smoothFringe = renderWeave(model, {
+    mode: 'fringe', border: 0.7, borderRoughness: 0.05, roughness: 0.2, targetW: 240, seed: 8
+  });
+  const roughFringe = renderWeave(model, {
+    mode: 'fringe', border: 0.7, borderRoughness: 0.95, roughness: 0.2, targetW: 240, seed: 8
+  });
+  let fringeRoughDiff = 0;
+  const n = Math.min(smoothFringe.data.length, roughFringe.data.length);
+  for (let i = 0; i < n; i++) if (smoothFringe.data[i] !== roughFringe.data[i]) fringeRoughDiff++;
+  ok(fringeRoughDiff > n * 0.02, 'borderRoughness inert on fringe');
+  // same cloth roughness, different borderRoughness → still differ
+  const sameClothRough = renderWeave(model, {
+    mode: 'fringe', border: 0.7, borderRoughness: 0.1, roughness: 0.5, targetW: 240, seed: 8
+  });
+  const sameClothRough2 = renderWeave(model, {
+    mode: 'fringe', border: 0.7, borderRoughness: 0.9, roughness: 0.5, targetW: 240, seed: 8
+  });
+  let brd = 0;
+  for (let i = 0; i < sameClothRough.data.length && i < sameClothRough2.data.length; i++)
+    if (sameClothRough.data[i] !== sameClothRough2.data[i]) brd++;
+  ok(brd > sameClothRough.data.length * 0.02, 'borderRoughness should differ at fixed cloth roughness');
+
+  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}; borderRoughΔ=${(100*fringeRoughDiff/n).toFixed(0)}%`);
 }
 
 console.log('13. structure library, repair, draft-ops, DesignSpec, WIF');

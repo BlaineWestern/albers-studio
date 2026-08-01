@@ -21,7 +21,8 @@ const LEGACY = {
  * @param {string} [opt.mode]           weave aesthetic incl. fringe
  * @param {number} [opt.tightness]
  * @param {number} [opt.roughness]
- * @param {number} [opt.border]        fringe extension 0..1 (0 = no border)
+ * @param {number} [opt.border]           fringe extension 0..1 (0 = no border)
+ * @param {number} [opt.borderRoughness]  fringe-thread irregularity 0..1
  * @param {number} [opt.targetW]
  * @param {number} [opt.seed]
  */
@@ -34,6 +35,7 @@ export function constructTapestry(model, opt = {}){
     tightness: opt.tightness ?? WEAVE_DEFAULTS.tightness,
     roughness: opt.roughness ?? WEAVE_DEFAULTS.roughness,
     border: opt.border ?? WEAVE_DEFAULTS.border,
+    borderRoughness: opt.borderRoughness ?? WEAVE_DEFAULTS.borderRoughness,
     seed: opt.seed ?? WEAVE_DEFAULTS.seed,
     targetW: opt.targetW,
     cellW: opt.cellW,

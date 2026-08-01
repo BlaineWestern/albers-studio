@@ -11,7 +11,7 @@ import { API, download, imgToCanvas } from '../shared.js';
 export function TapestryStage({
   model,
   weaveMode, setWeaveMode, tightness, setTightness, roughness, setRoughness,
-  border, setBorder,
+  border, setBorder, borderRoughness, setBorderRoughness,
   outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved,
   constructionNote, provenance
 }){
@@ -28,7 +28,8 @@ export function TapestryStage({
   };
   const saveProvenance = () => {
     const blob = provenance || model?.generative?.provenance || {
-      tool: 'studio', weave: { mode: weaveMode, tightness, roughness, border }
+      tool: 'studio',
+      weave: { mode: weaveMode, tightness, roughness, border, borderRoughness }
     };
     download('provenance.json',
       'data:application/json,'+encodeURIComponent(JSON.stringify(blob, null, 2)));
@@ -50,7 +51,7 @@ export function TapestryStage({
       tool: model.generative ? 'generate' : 'photo',
       source: model.generative ? 'generative' : 'transform',
       designSpec: model.generative?.designSpec,
-      weave: { mode: weaveMode, tightness, roughness, border },
+      weave: { mode: weaveMode, tightness, roughness, border, borderRoughness },
       env: model.generative?.env,
       seed: model.generative?.seed,
       style: model.generative?.style
@@ -104,6 +105,14 @@ export function TapestryStage({
                    disabled={weaveMode !== 'fringe'}
                    onChange={e=>setBorder(+e.target.value)}/>
             <em>{border.toFixed(2)}</em>
+          </label>
+          <label className="env-row tight-row" title="Irregularity of fringe threads only (not the cloth).">
+            <span>Border rough</span>
+            <input type="range" min="0" max="1" step="0.01" value={borderRoughness}
+                   data-testid="border-rough-slider"
+                   disabled={weaveMode !== 'fringe' || border <= 0}
+                   onChange={e=>setBorderRoughness(+e.target.value)}/>
+            <em>{borderRoughness.toFixed(2)}</em>
           </label>
         </div>
         {weaveMode === 'fringe' && border <= 0 &&

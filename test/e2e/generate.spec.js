@@ -51,8 +51,11 @@ test.describe('generate tool', () => {
     await expect(page.getByTestId('weave-mode-fringe')).toHaveClass(/on/);
     await expect(page.getByTestId('border-slider')).toBeEnabled();
     await page.getByTestId('border-slider').fill('0');
+    await expect(page.getByTestId('border-rough-slider')).toBeDisabled();
     await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
     await page.getByTestId('border-slider').fill('0.7');
+    await expect(page.getByTestId('border-rough-slider')).toBeEnabled();
+    await page.getByTestId('border-rough-slider').fill('0.9');
     await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
   });
 

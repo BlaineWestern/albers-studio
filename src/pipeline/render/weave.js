@@ -11,9 +11,10 @@
    fringe   cord body + warp/weft threads extending past the cloth edge
 
    Shared knobs:
-     tightness  0..1  packed ↔ open (space between warp and weft)
-     roughness  0..1  machine-regular ↔ handloom irregular
-     border     0..1  fringe extension beyond sides (0 = no border)
+     tightness        0..1  packed ↔ open (space between warp and weft)
+     roughness        0..1  machine-regular ↔ handloom irregular (cloth body)
+     border           0..1  fringe extension beyond sides (0 = no border)
+     borderRoughness  0..1  irregularity of fringe threads only (length/splay/noise)
 */
 import { newImg, fillRect, clamp255, clamp01, mulberry32, nz, oklabToRgb } from '../core.js';
 
@@ -31,6 +32,7 @@ export const WEAVE_DEFAULTS = {
   tightness: 1,      // packed by default (classic V2); loosen to open gaps
   roughness: 0.35,   // used strongly by handloom; mild elsewhere
   border: 0,         // fringe extension; 0 = cloth only (no border)
+  borderRoughness: 0.35, // fringe-thread irregularity only
   seed: 11,
   gapRgb: [28, 26, 23]  // void between yarns when loosened
 };
@@ -62,6 +64,7 @@ function yarnFill(tightness, rough, seed, id){
  * @param {number} [opt.tightness] 0..1
  * @param {number} [opt.roughness] 0..1
  * @param {number} [opt.border] 0..1 fringe extension (0 = no border)
+ * @param {number} [opt.borderRoughness] 0..1 fringe-thread irregularity
  */
 export function renderWeave(model, opt = {}){
   const mode = opt.mode ?? WEAVE_DEFAULTS.mode;
@@ -242,9 +245,11 @@ function renderYarnBodies(model, opt){
 }
 
 /* ── Fringe: cord body + warp/weft threads extending past the cloth ──
-   border 0 → identical cloth footprint (no pad). border 1 → full fringe. */
+   border 0 → identical cloth footprint (no pad). border 1 → full fringe.
+   borderRoughness only affects extending threads (not the cloth body). */
 function renderFringe(model, opt){
   const border = clamp01(opt.border ?? WEAVE_DEFAULTS.border);
+  // Cloth body uses cloth roughness; fringe uses its own knob
   const body = renderYarnBodies(model, { ...opt, mode: 'cord' });
   if (border <= 0) return body;
 
@@ -256,14 +261,17 @@ function renderFringe(model, opt){
   const ch = cw * (model.geometry.wefted ?? 0.86);
   const tw = cw / tp, th = ch / tp;
   const seed = opt.seed ?? WEAVE_DEFAULTS.seed;
-  const rough = clamp01(opt.roughness ?? WEAVE_DEFAULTS.roughness);
+  const bRough = clamp01(
+    opt.borderRoughness ?? opt.fringeRoughness ?? WEAVE_DEFAULTS.borderRoughness
+  );
   const gap = opt.gapRgb ?? WEAVE_DEFAULTS.gapRgb;
   const warpC = warpColour(model);
   const tight = clamp01(opt.tightness ?? WEAVE_DEFAULTS.tightness);
 
   // Extension depth in pixels — scales with border; ~22% of short side at 1.0
+  // Extra pad room when borderRoughness is high so splay/length jitter stays on-canvas
   const maxPad = Math.max(6, Math.round(Math.min(body.w, body.h) * 0.22));
-  const pad = Math.max(1, Math.round(maxPad * border));
+  const pad = Math.max(1, Math.round(maxPad * border * (1 + bRough * 0.25)));
   const out = newImg(body.w + pad * 2, body.h + pad * 2);
   fillRect(out, 0, 0, out.w, out.h, gap);
 
@@ -279,17 +287,19 @@ function renderFringe(model, opt){
 
   // Warp fringe — vertical threads past top & bottom
   for (let fx = 0; fx < W; fx++){
-    const thk = yarnFill(tight, rough * 0.5, seed ^ 0xF11, fx);
+    const thk = yarnFill(tight, bRough, seed ^ 0xF11, fx);
     const bodyW = Math.max(1, tw * thk);
-    const x0 = pad + fx * tw + (tw - bodyW) * 0.5;
-    // length jitter per end
-    const lenScale = 0.65 + slide1(seed, 91, fx * 0.7) * 0.35 * (1 + rough * 0.4);
+    const splay = (slide1(seed, 93, fx * 0.9) - 0.5) * bRough * tw * 1.1;
+    const x0 = pad + fx * tw + (tw - bodyW) * 0.5 + splay;
+    // length jitter per end — driven by borderRoughness
+    const lenScale = 0.55 + slide1(seed, 91, fx * 0.7) * (0.45 + bRough * 0.55);
     const ext = Math.max(1, pad * lenScale);
-    paintYarnStrip(out, x0, pad - ext, bodyW, ext + 0.5, warpC, {
-      axis: 'v', cord: true, dive: 0.92, seed, fx, fy: -1, rough: rough * 0.6, mode: 'fringe'
-    });
-    paintYarnStrip(out, x0, pad + body.h - 0.5, bodyW, ext + 0.5, warpC, {
-      axis: 'v', cord: true, dive: 0.92, seed, fx, fy: H, rough: rough * 0.6, mode: 'fringe'
+    const fringeOpt = {
+      axis: 'v', cord: true, dive: 0.92, seed, fx, rough: bRough, mode: 'fringe'
+    };
+    paintYarnStrip(out, x0, pad - ext, bodyW, ext + 0.5, warpC, { ...fringeOpt, fy: -1 });
+    paintYarnStrip(out, x0 + splay * 0.35, pad + body.h - 0.5, bodyW, ext + 0.5, warpC, {
+      ...fringeOpt, fy: H
     });
   }
 
@@ -298,16 +308,18 @@ function renderFringe(model, opt){
     const cy = Math.min(rows - 1, (fy / tp) | 0);
     const leftYarn = rgb[idx[cy * cols + 0]];
     const rightYarn = rgb[idx[cy * cols + (cols - 1)]];
-    const thk = yarnFill(tight, rough * 0.5, seed ^ 0xF22, fy);
+    const thk = yarnFill(tight, bRough, seed ^ 0xF22, fy);
     const bodyH = Math.max(1, th * thk);
-    const y0 = pad + fy * th + (th - bodyH) * 0.5;
-    const lenScale = 0.65 + slide1(seed, 92, fy * 0.7) * 0.35 * (1 + rough * 0.4);
+    const splay = (slide1(seed, 94, fy * 0.9) - 0.5) * bRough * th * 1.1;
+    const y0 = pad + fy * th + (th - bodyH) * 0.5 + splay;
+    const lenScale = 0.55 + slide1(seed, 92, fy * 0.7) * (0.45 + bRough * 0.55);
     const ext = Math.max(1, pad * lenScale);
-    paintYarnStrip(out, pad - ext, y0, ext + 0.5, bodyH, leftYarn, {
-      axis: 'h', cord: true, dive: 0.9, seed, fx: -1, fy, rough: rough * 0.6, mode: 'fringe'
-    });
-    paintYarnStrip(out, pad + body.w - 0.5, y0, ext + 0.5, bodyH, rightYarn, {
-      axis: 'h', cord: true, dive: 0.9, seed, fx: W, fy, rough: rough * 0.6, mode: 'fringe'
+    const fringeOpt = {
+      axis: 'h', cord: true, dive: 0.9, seed, fy, rough: bRough, mode: 'fringe'
+    };
+    paintYarnStrip(out, pad - ext, y0, ext + 0.5, bodyH, leftYarn, { ...fringeOpt, fx: -1 });
+    paintYarnStrip(out, pad + body.w - 0.5, y0 + splay * 0.35, ext + 0.5, bodyH, rightYarn, {
+      ...fringeOpt, fx: W
     });
   }
 
@@ -377,15 +389,18 @@ function paintYarnStrip(img, x0, y0, w, h, rgb, p){
         shade = p.axis === 'h' ? (0.88 + 0.12 * (1 - v)) : (0.88 + 0.12 * (1 - u));
       }
 
-      // handloom: tension noise + multi-octave strand twist / hairiness
-      if (rough > 0 && p.mode === 'handloom'){
+      // handloom / fringe: tension noise + multi-octave strand twist / hairiness
+      if (rough > 0 && (p.mode === 'handloom' || p.mode === 'fringe')){
         const along = p.axis === 'h' ? p.fx + u : p.fy + v;
         const across = p.axis === 'h' ? v : u;
-        shade += (slide1(p.seed, 33, along * 2) - 0.5) * rough * 0.22;
-        shade += (slide1(p.seed, 71, along * 5.3 + across * 2) - 0.5) * rough * 0.12;
-        // hair / ply flecks near edges
+        const amp = p.mode === 'fringe' ? 1.35 : 1;
+        shade += (slide1(p.seed, 33, along * 2) - 0.5) * rough * 0.22 * amp;
+        shade += (slide1(p.seed, 71, along * 5.3 + across * 2) - 0.5) * rough * 0.12 * amp;
+        // hair / ply flecks near edges — stronger on rough fringe tips
         if (mask < 0.55)
-          shade += (slide1(p.seed, 19, along * 11) - 0.5) * rough * 0.18;
+          shade += (slide1(p.seed, 19, along * 11) - 0.5) * rough * 0.18 * amp;
+        if (p.mode === 'fringe' && u > 0.7)
+          shade += (slide1(p.seed, 47, along * 8) - 0.5) * rough * 0.2;
       }
 
       const a = clamp01(mask * dive);

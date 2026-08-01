@@ -28,6 +28,7 @@ export function GenerateTool(){
   const [tightness, setTightness] = useState(0.88);
   const [roughness, setRoughness] = useState(0.25);
   const [border, setBorder] = useState(WEAVE_DEFAULTS.border);
+  const [borderRoughness, setBorderRoughness] = useState(WEAVE_DEFAULTS.borderRoughness);
   const [cols, setCols] = useState(0);
   const [profiles, setProfiles] = useState([]);
   const [dbUp, setDbUp] = useState(false);
@@ -169,10 +170,11 @@ export function GenerateTool(){
     if (!model || !outCvs.current || !outBox.current) return;
     const wpx = Math.max(200, outBox.current.getBoundingClientRect().width - 4);
     const out = constructTapestry(model, {
-      renderer: 'V2', mode: weaveMode, tightness, roughness, border, seed: 11, targetW: wpx
+      renderer: 'V2', mode: weaveMode, tightness, roughness, border, borderRoughness,
+      seed: 11, targetW: wpx
     });
     imgToCanvas(out, outCvs.current);
-  }, [model, weaveMode, tightness, roughness, border]);
+  }, [model, weaveMode, tightness, roughness, border, borderRoughness]);
 
   useEffect(render, [render]);
   useEffect(() => {
@@ -340,6 +342,7 @@ export function GenerateTool(){
           tightness={tightness} setTightness={setTightness}
           roughness={roughness} setRoughness={setRoughness}
           border={border} setBorder={setBorder}
+          borderRoughness={borderRoughness} setBorderRoughness={setBorderRoughness}
           outCvs={outCvs} outBox={outBox} fid={null}
           profiles={profiles} onLoadProfile={loadProfile} showProfiles={false}
           onSaved={refresh}
