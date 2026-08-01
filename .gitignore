@@ -5,3 +5,8 @@ studio.db
 studio.db-journal
 studio.db-wal
 studio.db-shm
+test/e2e/.studio-e2e.db
+test/e2e/.studio-e2e.db-*
+test-results/
+playwright-report/
+blob-report/

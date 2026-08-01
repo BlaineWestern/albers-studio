@@ -194,13 +194,15 @@ export function PhotoTool(){
           </div>
           <div className="bar">
             <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
+                   data-testid="photo-file"
                    onChange={e=>loadFile(e.target.files[0])}/>
-            <button onClick={()=>fileRef.current.click()}>Open image</button>
+            <button data-testid="photo-open" onClick={()=>fileRef.current.click()}>Open image</button>
           </div>
           <div className="plabel" style={{marginTop:8}}>Photo mode</div>
-          <div className="vtoggle weave-modes" style={{marginLeft:0, flexWrap:'wrap'}}>
+          <div className="vtoggle weave-modes" style={{marginLeft:0, flexWrap:'wrap'}} data-testid="photo-modes">
             {Object.entries(PHOTO_MODES).map(([id, m]) =>
               <button key={id} className={id===photoMode?'on':''}
+                      data-testid={`photo-mode-${id}`}
                       onClick={()=>setPhotoMode(id)} title={m.note}>{m.label}</button>)}
           </div>
         </section>
@@ -218,9 +220,9 @@ export function PhotoTool(){
             <label className="check">
               <input type="checkbox" checked={useApi} onChange={e=>setUseApi(e.target.checked)}/> API
             </label>
-            <button disabled={!src} onClick={doProcess}>{busy||'Transform'}</button>
+            <button data-testid="photo-transform" disabled={!src} onClick={doProcess}>{busy||'Transform'}</button>
           </div>
-          {model && <div className="readout">
+          {model && <div className="readout" data-testid="photo-readout">
             mode {photoMode}
             {model.geometry.pitch.confX >= 0.04
               ? <> · pitch {model.geometry.pitch.pitchX.toFixed(1)}px → {model.geometry.cols} threads<br/></>

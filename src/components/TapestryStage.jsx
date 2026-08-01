@@ -68,14 +68,15 @@ export function TapestryStage({
     <section>
       <div className="plabel">3 · Construction · {weaveMode}
         {constructionNote ? ` · ${constructionNote}` : ''}</div>
-      <div ref={outBox} className={'stage grow'+(model?'':' empty')}>
-        {model && <canvas ref={outCvs}/>}
+      <div ref={outBox} className={'stage grow'+(model?'':' empty')} data-testid="tapestry-stage">
+        {model && <canvas ref={outCvs} data-testid="tapestry-canvas"/>}
       </div>
       <div className="weave-controls">
         <div className="plabel">Weave appearance (shared pipeline)</div>
-        <div className="vtoggle weave-modes">
+        <div className="vtoggle weave-modes" data-testid="weave-modes">
           {Object.entries(WEAVE_MODES).map(([id, m]) =>
             <button key={id} className={id===weaveMode?'on':''}
+                    data-testid={`weave-mode-${id}`}
                     onClick={()=>setWeaveMode(id)} title={m.note}>{m.label}</button>)}
         </div>
         <div className="bar weave-sliders">
@@ -131,9 +132,9 @@ export function ToolChrome({ tool, note, dbUp, children }){
         <span className="sub">{tool === 'photo'
           ? 'photograph → photo modes → shared construction'
           : 'environment + rug style → shared construction'}</span>
-        <nav className="vtoggle modes">
-          <a className={tool==='photo'?'on':''} href="/photo">Photo</a>
-          <a className={tool==='generate'?'on':''} href="/generate">Generate</a>
+        <nav className="vtoggle modes" data-testid="tool-nav">
+          <a className={tool==='photo'?'on':''} href="/photo" data-testid="nav-photo">Photo</a>
+          <a className={tool==='generate'?'on':''} href="/generate" data-testid="nav-generate">Generate</a>
         </nav>
       </header>
       <div className="vnote">{note}

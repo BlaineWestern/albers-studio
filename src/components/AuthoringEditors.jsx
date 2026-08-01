@@ -175,23 +175,27 @@ export function AuthoringEditors({ model, setModel, onEdited }){
   const validity = model.structure?.validity;
 
   return (
-    <div className="authoring">
+    <div className="authoring" data-testid="authoring">
       <div className="plabel">Authoring · motif + draft</div>
       <div className="bar">
         {model.palette.map((y, i) =>
           <button key={i} type="button" className={i===yarnId?'on yarn-pick': 'yarn-pick'}
+                  data-testid={`yarn-pick-${i}`}
                   style={{ borderColor: `rgb(${y.rgb})` }}
                   onClick={()=>setYarnId(i)} title={y.role}>
             <i style={{ background:`rgb(${y.rgb})` }}/>{i}
           </button>)}
         <label>Brush <input type="range" min="0" max="4" value={brush}
+               data-testid="brush-radius"
                onChange={e=>setBrush(+e.target.value)}/> {brush}</label>
-        <button type="button" disabled={!undo.length} onClick={doUndo}>Undo</button>
+        <button type="button" data-testid="authoring-undo" disabled={!undo.length} onClick={doUndo}>Undo</button>
         {model.structure?.layers?.length > 1 && (
-          <span className="vtoggle weave-modes" style={{marginLeft:0}}>
+          <span className="vtoggle weave-modes" style={{marginLeft:0}} data-testid="face-toggle">
             <button type="button" className={!model.structure.face?'on':''}
+                    data-testid="face-a"
                     onClick={()=>setFace(0)}>Face A</button>
             <button type="button" className={model.structure.face?'on':''}
+                    data-testid="face-b"
                     onClick={()=>setFace(1)}>Face B</button>
           </span>
         )}
@@ -199,14 +203,14 @@ export function AuthoringEditors({ model, setModel, onEdited }){
       <div className="authoring-grids">
         <div>
           <div className="plabel">Indexmap brush</div>
-          <canvas ref={motifRef} className="edit-grid"
+          <canvas ref={motifRef} className="edit-grid" data-testid="motif-canvas"
                   onPointerDown={onMotifPointer}
                   onPointerMove={onMotifPointer}/>
         </div>
         <div>
           <div className="plabel">Draft toggles
             {validity ? ` · ${validity.ok ? 'ok' : 'flagged'}` : ''}</div>
-          <canvas ref={draftRef} className="edit-grid"
+          <canvas ref={draftRef} className="edit-grid" data-testid="draft-canvas"
                   onClick={onDraftClick}/>
         </div>
       </div>

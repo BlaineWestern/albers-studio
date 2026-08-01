@@ -217,11 +217,11 @@ export function GenerateTool(){
             <label>Seed <input type="number" min="0" max="999999" value={genSeed}
                    onChange={e=>setGenSeed(+e.target.value||0)}/></label>
             <button onClick={()=>setEnv({...ENV_DEFAULTS})}>Reset env</button>
-            <button onClick={previewSpecFromEnv}>Preview spec</button>
+            <button data-testid="preview-spec" onClick={previewSpecFromEnv}>Preview spec</button>
           </div>
 
           <div className="plabel" style={{marginTop:10}}>DesignSpec inspector</div>
-          <div className="stage env-panel spec-panel">
+          <div className="stage env-panel spec-panel" data-testid="design-spec">
             {!designSpec && <p className="hint">Generate or Preview spec to edit named plans.</p>}
             {designSpec && <>
               <label className="env-row">
@@ -267,12 +267,12 @@ export function GenerateTool(){
                 <em>{designSpec.appearancePlan.roughness.toFixed(2)}</em>
               </label>
               <label className="check">
-                <input type="checkbox" checked={!!designSpec.structurePlan.doubleWeave}
+                <input type="checkbox" data-testid="double-weave" checked={!!designSpec.structurePlan.doubleWeave}
                        onChange={e=>patchSpec('structurePlan.doubleWeave', e.target.checked)}/>
                 Double weave
               </label>
               <label className="check">
-                <input type="checkbox"
+                <input type="checkbox" data-testid="ca-seed"
                        checked={(designSpec.structurePlan.ops||[]).some(o => o.op === 'caSeed')}
                        onChange={e=>{
                          const ops = (designSpec.structurePlan.ops||[]).filter(o => o.op !== 'caSeed');
@@ -282,7 +282,7 @@ export function GenerateTool(){
                 CA seed op
               </label>
               <div className="bar">
-                <button onClick={rematerialize}>{busy || 'Rematerialize'}</button>
+                <button data-testid="rematerialize" onClick={rematerialize}>{busy || 'Rematerialize'}</button>
               </div>
             </>}
           </div>
@@ -315,9 +315,9 @@ export function GenerateTool(){
           <div className="bar">
             <label>Threads <input type="number" min="0" max="300" value={cols}
                    onChange={e=>setCols(+e.target.value)}/></label>
-            <button onClick={doGenerate}>{busy||'Generate'}</button>
+            <button data-testid="generate" onClick={doGenerate}>{busy||'Generate'}</button>
           </div>
-          {model && <div className="readout">
+          {model && <div className="readout" data-testid="generate-readout">
             {genInfo
               ? <>generative · style {genInfo.style} · seed {genInfo.seed}<br/></>
               : null}

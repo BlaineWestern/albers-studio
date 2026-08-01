@@ -71,3 +71,5 @@ Flat · Tile · Ribbon · Cord · Handloom, plus **Tightness** and **Roughness**
     npm test
     npm run test:unit
     npm run test:api
+    npm run test:e2e      # Playwright UI (builds first)
+    npm run test:all
