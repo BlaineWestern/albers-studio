@@ -22,7 +22,7 @@ const LEGACY = {
  * @param {number} [opt.tightness]
  * @param {number} [opt.roughness]
  * @param {number} [opt.border]           fringe extension 0..1 (0 = no border)
- * @param {number} [opt.borderRoughness]  fringe-thread irregularity 0..1
+ * @param {number} [opt.borderRoughness]  fringe craft+physics mix 0..1
  * @param {number} [opt.targetW]
  * @param {number} [opt.seed]
  */

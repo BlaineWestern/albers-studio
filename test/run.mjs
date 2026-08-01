@@ -424,6 +424,12 @@ console.log('11b. weave aesthetic modes, tightness, handloom roughness');
   for (let i = 0; i < sameClothRough.data.length && i < sameClothRough2.data.length; i++)
     if (sameClothRough.data[i] !== sameClothRough2.data[i]) brd++;
   ok(brd > sameClothRough.data.length * 0.02, 'borderRoughness should differ at fixed cloth roughness');
+  // Hybrid craft+physics: high borderRough needs more pad (droop/splay/fray room)
+  ok(roughFringe.w >= smoothFringe.w && roughFringe.h >= smoothFringe.h,
+    'borderRough physics pad should not shrink canvas');
+  ok(roughFringe.w > smoothFringe.w || roughFringe.h > smoothFringe.h
+    || fringeRoughDiff > n * 0.05,
+    'craft+physics borderRough should visibly reshape fringe');
 
   console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}; borderRoughΔ=${(100*fringeRoughDiff/n).toFixed(0)}%`);
 }

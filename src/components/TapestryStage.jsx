@@ -106,7 +106,7 @@ export function TapestryStage({
                    onChange={e=>setBorder(+e.target.value)}/>
             <em>{border.toFixed(2)}</em>
           </label>
-          <label className="env-row tight-row" title="Irregularity of fringe threads only (not the cloth).">
+          <label className="env-row tight-row" title="Fringe only: craft cut + gravity/tension droop and tip fray (not the cloth).">
             <span>Border rough</span>
             <input type="range" min="0" max="1" step="0.01" value={borderRoughness}
                    data-testid="border-rough-slider"
