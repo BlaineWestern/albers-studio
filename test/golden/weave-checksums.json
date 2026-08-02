@@ -1,0 +1,19 @@
+{
+  "schema": "albers-studio/golden@1",
+  "targetW": 160,
+  "tightness": 0.8,
+  "roughness": 0.35,
+  "seed": 11,
+  "model": {
+    "seed": 42,
+    "cols": 40,
+    "rows": 30
+  },
+  "checksums": {
+    "flat": "1026f7538aa1234c",
+    "tile": "0dfa5ce1d481adf8",
+    "ribbon": "94508d3412b697e3",
+    "cord": "9b75e6d5da7fa7c7",
+    "handloom": "5aeb0d930d81436b"
+  }
+}

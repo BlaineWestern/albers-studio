@@ -5,7 +5,17 @@
   "description": "Photograph to layered weave model to tapestry. V1/V1.2 archived renderers, V2 draft-based.",
   "scripts": {
     "build": "esbuild src/main.jsx --bundle --outfile=dist/bundle.js --jsx=automatic --minify",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/run.mjs && node test/api.mjs",
+    "test:unit": "node test/run.mjs",
+    "test:api": "node test/api.mjs",
+    "test:e2e": "npm run build && playwright test",
+    "test:all": "npm test && npm run test:e2e"
   },
-  "devDependencies": { "esbuild": "*", "react": "^18", "react-dom": "^18" }
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "esbuild": "*",
+    "react": "^18",
+    "react-dom": "^18"
+  }
 }
