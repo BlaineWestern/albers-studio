@@ -5,7 +5,7 @@ Plan to harden **Fringe** mode’s **Border** / **Border rough** model so craft 
 **Scope:** appearance layer only (`src/pipeline/render/weave.js` + construct/UI wiring).  
 **Out of scope:** learned yarn BRDF (L3-05), cloth FEM, FabricGen/AdaCAD code.
 
-**Status:** plan only (implementation not started).
+**Status:** F1 implemented (arc-length T/k/m + debug exports + UI ledger readout). F2–F5 pending.
 
 ---
 
@@ -77,7 +77,7 @@ Optional later (not required for M1–M3): `fringeStyle: 'cut' \| 'twisted' \| '
 
 | ID | Focus | Done when |
 |----|--------|-----------|
-| **F1** | Decouple physics ledger + arc-length paths | Sag changes shape at fixed length; T/k/m affect distinct path traits |
+| **F1** | Decouple physics ledger + arc-length paths | **done** — sag at fixed length; T/k/m distinct; debug exports + UI readout |
 | **F2** | Robust craft ledger (grouped cut, bundles) | Edge-correlated lengths; optional twisted/knotted groups |
 | **F3** | Material + sett coupling | Role/thickness/sett change droop/fray/splay measurably |
 | **F4** | Tip & appearance honesty | Continuous ply count; geometric hair flecks; less pure shade noise |
@@ -111,13 +111,23 @@ Ship order: **F1 → F2 → F3 → F4 → F5** (F5 tests land incrementally from
 `weave.js` (`fringePhysics`, `paintFringeStrand`); unit tests in `test/run.mjs`
 
 ### Done when
-- Fixed `L`, raising `m` or lowering `k` increases vertical droop / curl without increasing polyline length beyond tolerance (~1%).
-- Raising `T` at fixed `m,k` reduces lateral deviation.
-- `borderRoughness` still moves pixels >2%; determinism preserved.
-- Doc comment in `weave.js` lists the ledger formulas in one place.
+- Fixed `L`, raising `m` or lowering `k` increases vertical droop / curl without increasing polyline length beyond tolerance (~1%). ✅
+- Raising `T` at fixed `m,k` reduces lateral deviation. ✅
+- `borderRoughness` still moves pixels >2%; determinism preserved. ✅
+- Doc comment in `weave.js` lists the ledger formulas in one place. ✅
+- UI shows mean T/k/m readout (`taut` / `soft` / `heavy`). ✅
+- Exported debug: `fringeLedgerMeans`, `sampleFringeEnd`, `integrateFringePath`. ✅
+
+### Debug cheatsheet
+```js
+import { fringeLedgerMeans, integrateFringePath } from './render/weave.js';
+fringeLedgerMeans(0.9); // → { T, k, m, label: 'heavy' }
+integrateFringePath({ ax:0, ay:0, ox:1, oy:0, len:40, T:0.3, k:0.4, m:0.8, rough:0.5 });
+// → { points, arcLength, tip, droop, maxLateral, kappa }
+```
 
 ### Risks
-Over-curving at high rough → clamp κ; keep N adaptive with `L`.
+Over-curving at high rough → clamp κ; keep N adaptive with `L`. (κ scale tuned so T/k/m stay separable.)
 
 ---
 

@@ -5,7 +5,10 @@ import { fidelity, meanDelta, estimateWeave } from '../src/pipeline/analyze.js';
 import { renderV1 } from '../src/pipeline/render/v1.js';
 import { renderV12 } from '../src/pipeline/render/v12.js';
 import { renderV2, renderDraftImage } from '../src/pipeline/render/v2.js';
-import { renderWeave, WEAVE_MODES, WEAVE_DEFAULTS } from '../src/pipeline/render/weave.js';
+import {
+  renderWeave, WEAVE_MODES, WEAVE_DEFAULTS,
+  fringeLedgerMeans, sampleFringeEnd, integrateFringePath
+} from '../src/pipeline/render/weave.js';
 import { modelToSvg } from '../src/pipeline/svg.js';
 import { buildDraft, DEFAULT_ASSIGN, STRUCTURES, validateDraft, repairDraft, structureNames } from '../src/pipeline/structure.js';
 import { fingerprintConfig, fingerprintModel, blendFingerprints } from '../src/pipeline/fingerprint.js';
@@ -431,7 +434,50 @@ console.log('11b. weave aesthetic modes, tightness, handloom roughness');
     || fringeRoughDiff > n * 0.05,
     'craft+physics borderRough should visibly reshape fringe');
 
-  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}; borderRoughΔ=${(100*fringeRoughDiff/n).toFixed(0)}%`);
+  // ── F1 physics ledger: length conservation + independent T/k/m ──
+  const taut = fringeLedgerMeans(0.05);
+  const heavy = fringeLedgerMeans(0.95);
+  ok(taut.T > heavy.T && taut.k > heavy.k && taut.m < heavy.m,
+    'ledger means should go taut→heavy with Border rough');
+  ok(taut.label === 'taut' && heavy.label === 'heavy', 'ledger labels');
+
+  const L = 40;
+  const sideBase = { ax: 0, ay: 0, ox: 1, oy: 0, len: L, rough: 0.5, twist: 0.3,
+    releaseSign: 1, releaseAmt: 0.5 };
+  const pathHiM = integrateFringePath({ ...sideBase, T: 0.4, k: 0.5, m: 0.95 });
+  const pathLoM = integrateFringePath({ ...sideBase, T: 0.4, k: 0.5, m: 0.15 });
+  ok(Math.abs(pathHiM.arcLength - L) / L < 0.01, 'arc length not conserved (hi m)');
+  ok(Math.abs(pathLoM.arcLength - L) / L < 0.01, 'arc length not conserved (lo m)');
+  ok(pathHiM.droop > pathLoM.droop + 2, `mass should increase droop (hi ${pathHiM.droop.toFixed(2)} lo ${pathLoM.droop.toFixed(2)})`);
+
+  const pathSoftK = integrateFringePath({ ...sideBase, T: 0.4, k: 0.25, m: 0.55 });
+  const pathStiffK = integrateFringePath({ ...sideBase, T: 0.4, k: 0.9, m: 0.55 });
+  ok(Math.abs(pathSoftK.arcLength - L) / L < 0.01, 'arc length not conserved (soft k)');
+  ok(pathSoftK.droop > pathStiffK.droop + 2, `low k should droop more (soft ${pathSoftK.droop.toFixed(2)} stiff ${pathStiffK.droop.toFixed(2)})`);
+
+  // Tension holds residual release: isolate with low mass so gravity does not dominate
+  const pathLooseT = integrateFringePath({
+    ...sideBase, T: 0.1, k: 0.8, m: 0.12, releaseAmt: 1, rough: 0.2
+  });
+  const pathTautT = integrateFringePath({
+    ...sideBase, T: 0.95, k: 0.8, m: 0.12, releaseAmt: 1, rough: 0.2
+  });
+  ok(pathTautT.maxLateral + 0.5 < pathLooseT.maxLateral,
+    `high T should reduce lateral (taut ${pathTautT.maxLateral.toFixed(2)} loose ${pathLooseT.maxLateral.toFixed(2)})`);
+
+  // Top curl: heavy free end tip sits lower than straight-up tip
+  const topHeavy = integrateFringePath({
+    ax: 0, ay: 100, ox: 0, oy: -1, len: L, T: 0.25, k: 0.3, m: 0.9,
+    rough: 0.8, releaseSign: 1, releaseAmt: 0.4, twist: 1.1
+  });
+  ok(topHeavy.droop > 2, `top fringe should curl under gravity (droop ${topHeavy.droop.toFixed(2)})`);
+  ok(Math.abs(topHeavy.arcLength - L) / L < 0.01, 'top path length');
+
+  const endA = sampleFringeEnd(11, 3, 0.4, 4);
+  const endB = sampleFringeEnd(11, 3, 0.4, 4);
+  ok(endA.T === endB.T && endA.k === endB.k && endA.m === endB.m, 'sampleFringeEnd not deterministic');
+
+  console.log(`   modes ${modes.join(',')}; looseΔ=${(mean(packed)-mean(loose)).toFixed(1)}; roughDiff=${(100*rd/smooth.data.length).toFixed(0)}%; fringe ${fringe0.w}→${fringe1.w}; borderRoughΔ=${(100*fringeRoughDiff/n).toFixed(0)}%; F1 droop m ${pathLoM.droop.toFixed(1)}→${pathHiM.droop.toFixed(1)}`);
 }
 
 console.log('13. structure library, repair, draft-ops, DesignSpec, WIF');

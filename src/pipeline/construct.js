@@ -2,11 +2,13 @@
    Photo and Generate both end here. They differ in how the *model* is made
    (photograph analysis vs DesignSpec generation); construction is one path:
    draft-aware weave render with appearance knobs (mode/tightness/roughness/border). */
-import { renderWeave, WEAVE_DEFAULTS, WEAVE_MODES } from './render/weave.js';
+import {
+  renderWeave, WEAVE_DEFAULTS, WEAVE_MODES, fringeLedgerMeans
+} from './render/weave.js';
 import { renderV1 } from './render/v1.js';
 import { renderV12 } from './render/v12.js';
 
-export { WEAVE_MODES, WEAVE_DEFAULTS };
+export { WEAVE_MODES, WEAVE_DEFAULTS, fringeLedgerMeans };
 
 const LEGACY = {
   V1: renderV1,

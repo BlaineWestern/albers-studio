@@ -55,7 +55,10 @@ test.describe('generate tool', () => {
     await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
     await page.getByTestId('border-slider').fill('0.7');
     await expect(page.getByTestId('border-rough-slider')).toBeEnabled();
+    await expect(page.getByTestId('fringe-ledger-readout')).toBeVisible();
+    await expect(page.getByTestId('fringe-ledger-readout')).toContainText('T');
     await page.getByTestId('border-rough-slider').fill('0.9');
+    await expect(page.getByTestId('fringe-ledger-readout')).toContainText('heavy');
     await expect(page.getByTestId('tapestry-canvas')).toBeVisible();
   });
 

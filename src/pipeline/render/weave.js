@@ -9,12 +9,15 @@
    handloom ribbon/cord + yarn sliding, thickness jitter, tension noise
             (FabricGen-style irregularity for handwoven character)
    fringe   cord body + border threads via craft heuristics + light physics
+            (F1: independent T/k/m ledger + arc-length free-end paths)
 
    Shared knobs:
      tightness        0..1  packed ↔ open (space between warp and weft)
      roughness        0..1  machine-regular ↔ handloom irregular (cloth body)
      border           0..1  fringe extension beyond sides (0 = no border)
      borderRoughness  0..1  fringe craft+physics mix (cut, droop, tension, tip fray)
+
+   Debug (exported): fringeLedgerMeans · sampleFringeEnd · integrateFringePath
 */
 import { newImg, fillRect, clamp255, clamp01, mulberry32, nz, oklabToRgb } from '../core.js';
 
@@ -24,7 +27,7 @@ export const WEAVE_MODES = {
   ribbon:   { label: 'Ribbon',   note: 'elliptical yarns with gaps between threads' },
   cord:     { label: 'Cord',     note: 'cylindrical thread shading' },
   handloom: { label: 'Handloom', note: 'yarn slide + thickness jitter + tension noise' },
-  fringe:   { label: 'Fringe',   note: 'border threads — craft cut + gravity/tension droop' }
+  fringe:   { label: 'Fringe',   note: 'border threads — taut↔heavy free ends (T/k/m)' }
 };
 
 export const WEAVE_DEFAULTS = {
@@ -244,11 +247,151 @@ function renderYarnBodies(model, opt){
   return out;
 }
 
-/* ── Fringe: cord body + border threads (craft heuristics × light physics) ──
-   Craft: cut length, missing ends, tip fade, thickness at selvedge.
-   Physics: per-thread tension / stiffness / mass → gravity droop, lateral
-   release, tip taper & ply split. borderRoughness blends both (not cloth).
-   border 0 → identical cloth footprint (no pad). */
+/* ── Fringe F1: craft cut × independent physics ledger ────────────────────
+   UI: Border = length budget; Border rough → means of T / k / m (one dial).
+
+   Physics ledger (image space, gravity ĝ = (0,1)):
+     T  tension   — resists bend + lateral release   (high when smooth)
+     k  stiffness — resists curvature                (high when smooth)
+     m  mass      — gravity load                     (rises with rough)
+     κ  ∝ (m / max(ε,k)) · (1 − αT)   ; bend tangent toward gravity
+     Path is arc-length integrated (polyline Σ|Δp| = L) — no rubber stretch.
+
+   Craft (still IID in F1; grouped cuts land in F2):
+     lenScale, missing ends, anchor jitter, tip fade polish.
+
+   Debug without guessing pixels:
+     fringeLedgerMeans(rough)     → { T, k, m, label }
+     sampleFringeEnd(...)         → per-end craft + T/k/m
+     integrateFringePath(...)     → points + arcLength + droop + maxLateral
+*/
+
+// Curvature scale: κ·L ~ O(1) so T/k/m stay in a readable range (not instant hang).
+const FRINGE_KAPPA = 0.048;      // rad per px at m=k=1, T=0
+const FRINGE_T_BEND = 0.72;      // how strongly tension suppresses κ
+const FRINGE_MAX_DTHETA = 0.35;  // rad clamp per step (stability)
+const FRINGE_EPS_K = 0.14;
+
+/**
+ * Map Border rough → mean physics knobs (intuitive readout / debug).
+ * low  → taut (high T, high k) · high → heavy (low T, low k, higher m)
+ */
+export function fringeLedgerMeans(rough){
+  const r = clamp01(rough);
+  const T = clamp01(0.92 - r * 0.68);
+  const k = clamp01(0.90 - r * 0.58);
+  const m = clamp01(0.38 + r * 0.42);
+  const label = r < 0.25 ? 'taut' : r < 0.6 ? 'soft' : 'heavy';
+  return { T, k, m, label, rough: r };
+}
+
+/** Per-end craft + physics sample. Exported for unit tests / REPL debug. */
+export function sampleFringeEnd(seed, id, rough, pitch){
+  const r = clamp01(rough);
+  const means = fringeLedgerMeans(r);
+  const n = (tag) => nz(seed ^ tag, id, 0);
+  const spread = 0.07 + r * 0.15;
+  // Independent T / k / m — not collapsed into one sag scalar
+  const T = clamp01(means.T + (n(0x41) - 0.5) * 2 * spread);
+  const k = clamp01(means.k + (n(0x42) - 0.5) * 2 * spread);
+  const m = clamp01(means.m + (n(0x43) - 0.5) * 2 * spread * 0.9);
+  // Craft (IID — F2 will correlate along the edge)
+  const lenScale = 0.55 + n(0x91) * (0.45 + r * 0.5);
+  const missing = r > 0.15 && n(0x77) < r * 0.12;
+  const anchorJitter = (n(0x93) - 0.5) * r * pitch * 0.5;
+  const releaseSign = n(0x94) < 0.5 ? -1 : 1;
+  const releaseAmt = (0.15 + r * 0.85) * (0.35 + n(0x95) * 0.65);
+  const twist = n(0x55) * Math.PI * 2;
+  const fray = r * (0.3 + n(0x66) * 0.7);
+  return {
+    T, k, m, means,
+    lenScale, missing, anchorJitter,
+    releaseSign, releaseAmt, twist, fray
+  };
+}
+
+/**
+ * Arc-length free-end integrator.
+ * @returns {{ points, arcLength, tip, droop, maxLateral, steps }}
+ *   droop     — tip displacement along +Y vs straight tip (gravity response)
+ *   maxLateral — max |ô × (p−anchor)| along the path (release / bend)
+ */
+export function integrateFringePath(opt){
+  const ax = opt.ax, ay = opt.ay;
+  const len = Math.max(1e-3, opt.len);
+  let ox = opt.ox, oy = opt.oy;
+  const olen = Math.hypot(ox, oy) || 1;
+  ox /= olen; oy /= olen;
+
+  const T = clamp01(opt.T ?? 0.7);
+  const k = clamp01(opt.k ?? 0.7);
+  const m = clamp01(opt.m ?? 0.5);
+  const rough = clamp01(opt.rough ?? 0);
+  const releaseSign = opt.releaseSign ?? 1;
+  const releaseAmt = opt.releaseAmt ?? 0.4;
+  const twist = opt.twist ?? 0;
+
+  const steps = Math.max(8, Math.ceil(len * 1.5));
+  const ds = len / steps;
+
+  // Initial tangent: outward + lateral residual set (tension holds it in)
+  const theta0 = releaseSign * releaseAmt * (1 - T) * 0.55;
+  let ang = Math.atan2(oy, ox) + theta0;
+  let tx = Math.cos(ang), ty = Math.sin(ang);
+
+  const kappa = FRINGE_KAPPA * (m / Math.max(FRINGE_EPS_K, k)) * (1 - FRINGE_T_BEND * T);
+
+  const points = [{ x: ax, y: ay }];
+  let x = ax, y = ay;
+  let arcLength = 0;
+  let maxLateral = 0;
+
+  for (let i = 0; i < steps; i++){
+    const t = (i + 0.5) / steps;
+    // Bend tangent toward gravity (0,1); top curls, sides droop, bottom stays ~straight
+    const target = Math.PI * 0.5;
+    let dAng = target - ang;
+    while (dAng > Math.PI) dAng -= Math.PI * 2;
+    while (dAng < -Math.PI) dAng += Math.PI * 2;
+    const twistKick = Math.sin(twist + t * Math.PI * (1.15 + rough * 0.4))
+      * (1 - k) * rough * 0.12;
+    const stepBend = clamp(
+      dAng * kappa * ds + twistKick * ds,
+      -FRINGE_MAX_DTHETA,
+      FRINGE_MAX_DTHETA
+    );
+    ang += stepBend;
+    tx = Math.cos(ang); ty = Math.sin(ang);
+
+    x += tx * ds;
+    y += ty * ds;
+    arcLength += ds;
+    points.push({ x, y });
+
+    // Lateral distance from the outward ray through the anchor
+    const rx = x - ax, ry = y - ay;
+    const lat = Math.abs(ox * ry - oy * rx);
+    if (lat > maxLateral) maxLateral = lat;
+  }
+
+  const tip = { x, y };
+  const straightY = ay + oy * len;
+  const droop = tip.y - straightY; // +Y vs rigid outward tip
+
+  return { points, arcLength, tip, droop, maxLateral, steps, kappa, ds };
+}
+
+/** Extra pad so drooped / released tips stay on-canvas (from ledger means). */
+function fringePadPixels(bodyW, bodyH, border, rough){
+  const maxPad = Math.max(8, Math.round(Math.min(bodyW, bodyH) * 0.24));
+  const base = maxPad * clamp01(border);
+  const { T, k, m } = fringeLedgerMeans(rough);
+  // Expected excursion beyond outward length: soft+heavy needs lateral room
+  const slack = (m / Math.max(FRINGE_EPS_K, k)) * (1 - FRINGE_T_BEND * T) * 0.55;
+  return Math.max(2, Math.round(base * (1 + slack)));
+}
+
+/* ── Fringe raster ── border 0 → cloth-only footprint (≡ cord). */
 function renderFringe(model, opt){
   const border = clamp01(opt.border ?? WEAVE_DEFAULTS.border);
   const body = renderYarnBodies(model, { ...opt, mode: 'cord' });
@@ -269,9 +412,7 @@ function renderFringe(model, opt){
   const warpC = warpColour(model);
   const tight = clamp01(opt.tightness ?? WEAVE_DEFAULTS.tightness);
 
-  // Pad room for droop / splay / tip fray (physics needs lateral slack)
-  const maxPad = Math.max(8, Math.round(Math.min(body.w, body.h) * 0.24));
-  const pad = Math.max(2, Math.round(maxPad * border * (1 + bRough * 0.45)));
+  const pad = fringePadPixels(body.w, body.h, border, bRough);
   const out = newImg(body.w + pad * 2, body.h + pad * 2);
   fillRect(out, 0, 0, out.w, out.h, gap);
 
@@ -284,49 +425,44 @@ function renderFringe(model, opt){
     }
   }
 
-  // Warp fringe — top (out −Y) & bottom (out +Y); gravity is +Y
   for (let fx = 0; fx < W; fx++){
-    const phys = fringePhysics(seed, fx, bRough, tw);
-    // Craft: sparse / missing ends when rough
-    if (phys.missing) continue;
+    const end = sampleFringeEnd(seed, fx, bRough, tw);
+    if (end.missing) continue;
     const thk = yarnFill(tight, bRough * 0.6, seed ^ 0xF11, fx);
     const radius = Math.max(0.55, tw * thk * 0.48);
-    const ax = pad + fx * tw + tw * 0.5 + phys.anchorJitter;
-    const len = Math.max(2, pad * phys.lenScale);
-
+    const ax = pad + fx * tw + tw * 0.5 + end.anchorJitter;
+    const len = Math.max(2, pad * end.lenScale);
     paintFringeStrand(out, {
       ax, ay: pad, ox: 0, oy: -1, len, radius, rgb: warpC, seed, id: fx,
-      rough: bRough, phys, side: 'top'
+      rough: bRough, end
     });
     paintFringeStrand(out, {
-      ax: ax + phys.splay0 * 0.2, ay: pad + body.h, ox: 0, oy: 1, len, radius,
-      rgb: warpC, seed, id: fx + 0x1000, rough: bRough, phys, side: 'bot'
+      ax, ay: pad + body.h, ox: 0, oy: 1, len, radius, rgb: warpC, seed,
+      id: fx + 0x1000, rough: bRough, end
     });
   }
 
-  // Weft fringe — left / right
   for (let fy = 0; fy < H; fy++){
     const cy = Math.min(rows - 1, (fy / tp) | 0);
     const leftYarn = rgb[idx[cy * cols + 0]];
     const rightYarn = rgb[idx[cy * cols + (cols - 1)]];
-    const phys = fringePhysics(seed ^ 0xA5, fy, bRough, th);
-    if (phys.missing) continue;
+    const end = sampleFringeEnd(seed ^ 0xA5, fy, bRough, th);
+    if (end.missing) continue;
     const thk = yarnFill(tight, bRough * 0.6, seed ^ 0xF22, fy);
     const radius = Math.max(0.55, th * thk * 0.48);
-    const ay = pad + fy * th + th * 0.5 + phys.anchorJitter;
-    const len = Math.max(2, pad * phys.lenScale);
-
+    const ay = pad + fy * th + th * 0.5 + end.anchorJitter;
+    const len = Math.max(2, pad * end.lenScale);
     paintFringeStrand(out, {
       ax: pad, ay, ox: -1, oy: 0, len, radius, rgb: leftYarn, seed, id: fy,
-      rough: bRough, phys, side: 'left'
+      rough: bRough, end
     });
     paintFringeStrand(out, {
-      ax: pad + body.w, ay: ay + phys.splay0 * 0.2, ox: 1, oy: 0, len, radius,
-      rgb: rightYarn, seed, id: fy + 0x2000, rough: bRough, phys, side: 'right'
+      ax: pad + body.w, ay, ox: 1, oy: 0, len, radius, rgb: rightYarn, seed,
+      id: fy + 0x2000, rough: bRough, end
     });
   }
 
-  // Craft tip fade — soft darken toward outer pad (finish polish)
+  // Tip fade polish (craft) — pad-distance field; F2 will track real tip AABBs
   for (let y = 0; y < out.h; y++){
     for (let x = 0; x < out.w; x++){
       const inBody = x >= pad && x < pad + body.w && y >= pad && y < pad + body.h;
@@ -349,62 +485,35 @@ function renderFringe(model, opt){
   return out;
 }
 
-/** Per-thread craft + physics parameters from seed and borderRoughness. */
-function fringePhysics(seed, id, rough, pitch){
-  const n = (a, k = 0) => nz(seed ^ a, id, k);
-  // Craft: uneven cut length, occasional missing end, selvedge wobble
-  const lenScale = 0.52 + n(0x91) * (0.48 + rough * 0.55);
-  const missing = rough > 0.15 && n(0x77) < rough * 0.12;
-  const anchorJitter = (n(0x93) - 0.5) * rough * pitch * 0.55;
-
-  // Physics: tension (holds straight), stiffness (resists bend), mass (droop)
-  const tension = clamp01(0.88 - rough * 0.62 + (n(0x41) - 0.5) * 0.22);
-  const stiffness = clamp01(0.9 - rough * 0.55 + (n(0x42) - 0.5) * 0.18);
-  const mass = 0.45 + n(0x43) * 0.7;
-  // Residual yarn memory → lateral release after cut
-  const splay0 = (n(0x94) - 0.5) * (0.35 + rough * 1.4) * pitch;
-  // Twist phase for mild helical wander
-  const twist = n(0x55) * Math.PI * 2;
-  // Tip fray / ply split strength
-  const fray = rough * (0.35 + n(0x66) * 0.65);
-  // Gravity response: heavy + soft → more sag
-  const sag = (mass / Math.max(0.18, stiffness)) * (1 - tension * 0.55) * (0.25 + rough * 0.95);
-
-  return { lenScale, missing, anchorJitter, tension, stiffness, mass, splay0, twist, fray, sag };
-}
-
-/**
- * Paint one free-end strand along a craft+physics path.
- * Path: outward unit (ox,oy) + gravity droop (+Y) + lateral tension release.
- */
 function paintFringeStrand(img, p){
-  const { ax, ay, ox, oy, len, radius, rgb, seed, id, rough, phys } = p;
-  const steps = Math.max(6, Math.ceil(len * 1.35));
-  // Perpendicular in image plane for lateral splay
-  const lx = -oy, ly = ox;
-  // Tip ply split offset (physics of frayed ends)
-  const split = phys.fray * radius * 1.8;
-  const strands = phys.fray > 0.45 ? 2 : 1;
+  const { ax, ay, ox, oy, len, radius, rgb, seed, id, rough, end } = p;
+  const path = integrateFringePath({
+    ax, ay, ox, oy, len,
+    T: end.T, k: end.k, m: end.m,
+    releaseSign: end.releaseSign, releaseAmt: end.releaseAmt,
+    twist: end.twist, rough
+  });
+  const pts = path.points;
+  const strands = end.fray > 0.45 ? 2 : 1;
+  const split = end.fray * radius * 1.6;
 
   for (let s = 0; s < strands; s++){
-    const splitSign = s === 0 ? (strands > 1 ? -0.55 : 0) : 0.55;
-    for (let i = 0; i <= steps; i++){
-      const t = i / steps;
-      // Gravity sag ∝ t² (free-end cantilever); tension reduces it
-      const gDrop = phys.sag * len * t * t;
-      // Lateral: craft splay grows with t; physics twist wave from yarn memory
-      const lat =
-        phys.splay0 * t * (1.1 - phys.tension * 0.5)
-        + Math.sin(phys.twist + t * Math.PI * (1.2 + rough)) * rough * radius * 0.9
-        + splitSign * split * t * t;
-      const x = ax + ox * len * t + lx * lat;
-      const y = ay + oy * len * t + gDrop + ly * lat * 0.15;
-
-      // Tip taper (wear) + mild root thickening
-      const rad = radius * (1.05 - t * (0.35 + phys.fray * 0.45));
+    const splitSign = strands > 1 ? (s === 0 ? -0.55 : 0.55) : 0;
+    // Side offset along path normal (approx ⊥ last segment)
+    for (let i = 0; i < pts.length; i++){
+      const t = i / Math.max(1, pts.length - 1);
+      let px = pts[i].x, py = pts[i].y;
+      if (splitSign !== 0 && i > 0){
+        const dx = pts[i].x - pts[i - 1].x;
+        const dy = pts[i].y - pts[i - 1].y;
+        const hl = Math.hypot(dx, dy) || 1;
+        px += (-dy / hl) * splitSign * split * t * t;
+        py += (dx / hl) * splitSign * split * t * t;
+      }
+      const rad = radius * (1.05 - t * (0.35 + end.fray * 0.45));
       const dive = 0.9 * (1 - t * 0.22);
-      stampFringeDisk(img, x, y, rad, rgb, {
-        seed, id: id + s * 97, t, rough, dive, phys
+      stampFringeDisk(img, px, py, rad, rgb, {
+        seed, id: id + s * 97, t, rough, dive, fray: end.fray
       });
     }
   }
@@ -430,20 +539,17 @@ function stampFringeDisk(img, cx, cy, rad, rgb, p){
       if (mask <= 0.02) continue;
       mask = Math.sqrt(mask);
 
-      // Cylinder-ish shade from disk radius
       let shade = 0.74 + 0.26 * Math.cos(nrm * Math.PI * 0.5);
       if (nrm < 0.28) shade += 0.07;
 
-      // Craft hairiness + physics tension noise along strand
       if (p.rough > 0){
         const along = p.id * 0.17 + p.t * 5.1;
-        shade += (slide1(p.seed, 33, along) - 0.5) * p.rough * 0.28;
-        shade += (slide1(p.seed, 71, along * 2.3 + nrm) - 0.5) * p.rough * 0.14;
+        shade += (slide1(p.seed, 33, along) - 0.5) * p.rough * 0.22;
+        shade += (slide1(p.seed, 71, along * 2.3 + nrm) - 0.5) * p.rough * 0.12;
         if (mask < 0.5)
-          shade += (slide1(p.seed, 19, along * 9) - 0.5) * p.rough * 0.2;
-        // Tip flecks when frayed
+          shade += (slide1(p.seed, 19, along * 9) - 0.5) * p.rough * 0.16;
         if (p.t > 0.7)
-          shade += (slide1(p.seed, 47, along * 7) - 0.5) * p.rough * (0.15 + p.phys.fray * 0.2);
+          shade += (slide1(p.seed, 47, along * 7) - 0.5) * p.rough * (0.12 + (p.fray ?? 0) * 0.18);
       }
 
       const a = clamp01(mask * (p.dive ?? 0.9));
@@ -457,6 +563,10 @@ function stampFringeDisk(img, cx, cy, rad, rgb, p){
       d[o+3] = 255;
     }
   }
+}
+
+function clamp(v, lo, hi){
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 function paintYarnStrip(img, x0, y0, w, h, rgb, p){

@@ -1,5 +1,5 @@
 import React from 'react';
-import { WEAVE_MODES } from '../pipeline/construct.js';
+import { WEAVE_MODES, fringeLedgerMeans } from '../pipeline/construct.js';
 import { modelToSvg } from '../pipeline/svg.js';
 import { renderDraftImage } from '../pipeline/render/v2.js';
 import { modelToConfig } from '../pipeline/config.js';
@@ -15,6 +15,9 @@ export function TapestryStage({
   outCvs, outBox, fid, profiles, onLoadProfile, showProfiles, onSaved,
   constructionNote, provenance
 }){
+  const fringeLedger = weaveMode === 'fringe' && border > 0
+    ? fringeLedgerMeans(borderRoughness)
+    : null;
   const savePng = () => download(
     `tapestry-${weaveMode}.png`,
     outCvs.current.toDataURL('image/png'));
@@ -106,7 +109,7 @@ export function TapestryStage({
                    onChange={e=>setBorder(+e.target.value)}/>
             <em>{border.toFixed(2)}</em>
           </label>
-          <label className="env-row tight-row" title="Fringe only: craft cut + gravity/tension droop and tip fray (not the cloth).">
+          <label className="env-row tight-row" title="Low = taut/stiff free ends. High = heavy soft droop + tip fray. Fringe only (not cloth).">
             <span>Border rough</span>
             <input type="range" min="0" max="1" step="0.01" value={borderRoughness}
                    data-testid="border-rough-slider"
@@ -117,6 +120,14 @@ export function TapestryStage({
         </div>
         {weaveMode === 'fringe' && border <= 0 &&
           <div className="plabel">Border 0 · cloth only (no fringe)</div>}
+        {fringeLedger &&
+          <div className="plabel" data-testid="fringe-ledger-readout"
+               title="Mean physics ledger from Border rough (per-end samples vary around these).">
+            Free ends · {fringeLedger.label}
+            {' '}· T {fringeLedger.T.toFixed(2)}
+            {' '}· k {fringeLedger.k.toFixed(2)}
+            {' '}· m {fringeLedger.m.toFixed(2)}
+          </div>}
       </div>
       <div className="bar">
         <button disabled={!model} onClick={savePng}>PNG</button>

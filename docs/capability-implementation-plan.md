@@ -20,7 +20,7 @@ Goal: turn each unfinished map row into **working functionality** in Albers Stud
 
 Still deferred: L3-05 learned yarn shading, L4-04 diffusion/LLM drafts.
 
-**Appearance follow-on (planned):** fringe craft × physics hardening — see [`fringe-heuristics-plan.md`](./fringe-heuristics-plan.md) (F1–F5).
+**Appearance follow-on:** fringe craft × physics — see [`fringe-heuristics-plan.md`](./fringe-heuristics-plan.md). **F1 done** (T/k/m + arc-length); F2–F5 pending.
 
 ---
 
