@@ -53,16 +53,25 @@ export default function App(){
   const [profiles, setProfiles] = useState([]);
   const [dbUp, setDbUp] = useState(false);
   const [busy, setBusy] = useState('');
+  const [status, setStatus] = useState({ text: '', tone: 'ok' });
+  const [profileName, setProfileName] = useState('untitled tapestry');
   const [env, setEnv] = useState({ ...ENV_DEFAULTS });
   const [styleIds, setStyleIds] = useState([]);
   const [genSeed, setGenSeed] = useState(42);
   const [genInfo, setGenInfo] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
   const srcCvs = useRef(), outCvs = useRef(), outBox = useRef(), fileRef = useRef();
   const drag = useRef(-1);
 
+  const announce = (text, tone = 'ok') => setStatus({ text, tone });
+
   /* ── data in ── */
   const loadFile = f => {
-    if (!f || !f.type.startsWith('image/')) return;
+    if (!f) return;
+    if (!f.type.startsWith('image/')){
+      announce('Choose an image file (PNG, JPEG, WebP…).', 'err');
+      return;
+    }
     const url = URL.createObjectURL(f);
     const im = new Image();
     im.onload = () => {
@@ -75,8 +84,10 @@ export default function App(){
       const mx=w*0.05, my=h*0.05;
       setQuad([[mx,my],[w-mx,my],[w-mx,h-my],[mx,h-my]]);
       setFlat(null); setModel(null); setFid(null);
+      announce('Drag the four corners to the cloth edges, then Flatten.', 'ok');
       URL.revokeObjectURL(url);
     };
+    im.onerror = () => announce('Could not read that image.', 'err');
     im.src = url;
   };
 
@@ -113,15 +124,18 @@ export default function App(){
     const w = ar>=1?long:Math.round(long*ar), h = ar>=1?Math.round(long/ar):long;
     setFlat(warpQuad(src, quad, w, h));
     setModel(null); setFid(null);
+    announce('Cloth flattened. Set yarns/threads if you like, then Process.', 'ok');
   };
 
   const doProcess = useCallback(() => {
     if (!flat) return;
     setBusy('weaving…');
+    announce('Weaving model…', 'ok');
     setTimeout(() => {
       const m = buildModel(flat, { k, cols: cols || undefined });
       setModel(m);
       setBusy('');
+      announce('Model ready — tapestry updates on the right.', 'ok');
     }, 20);
   }, [flat, k, cols]);
 
@@ -148,21 +162,24 @@ export default function App(){
     catch { setDbUp(false); }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!dbUp && styleIds.length) setStyleIds([]);
+  }, [dbUp, styleIds.length]);
 
   const saveProfile = async () => {
-    const name = prompt('Profile name?', 'untitled tapestry');
-    if (!name) return;
+    const name = (profileName || '').trim() || 'untitled tapestry';
     const cfg = modelToConfig(model, { name, renderer: version });
     try {
       await fetch(API+'/configs', { method:'POST',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
       refresh();
+      announce(`Saved profile “${name}” to the studio database.`, 'ok');
     } catch {
-      // server down: fall back to a JSON download so nothing is lost
       const a = document.createElement('a');
       a.download = name.replace(/\W+/g,'-')+'.json';
       a.href = 'data:application/json,'+encodeURIComponent(JSON.stringify(cfg));
       a.click();
+      announce(`Database offline — downloaded “${name}.json” instead.`, 'warn');
     }
   };
   const loadProfile = async (id) => {
@@ -170,14 +187,17 @@ export default function App(){
     const cfg = await r.json();
     const m = attachDraft(configToModel(cfg.json ? JSON.parse(cfg.json) : cfg));
     setModel(m); setFlat(null); setFid(null); setGenInfo(null);
+    announce('Loaded profile into tapestry stage.', 'ok');
   };
 
   const toggleStyle = (id) => {
+    if (!dbUp) return;
     setStyleIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
   };
 
   const doGenerate = async () => {
     setBusy('generating…');
+    announce('Generating tapestry from environment + style…', 'ok');
     try {
       let m, info;
       if (dbUp){
@@ -193,19 +213,17 @@ export default function App(){
         m = attachDraft(configToModel(body.config));
         info = body.generative;
       } else {
-        // offline: fingerprint any locally unavailable; use default / blended nothing
-        let fp = defaultFingerprint();
-        if (styleIds.length && profiles.length){
-          // without db we cannot reload full configs; fall back to default
-          fp = defaultFingerprint();
-        }
+        if (styleIds.length)
+          announce('Database offline — rug styles unavailable; using default style.', 'warn');
+        const fp = defaultFingerprint();
         m = generateFromEnv({ env, fingerprint: fp, seed: genSeed, cols: cols || undefined });
         info = m.generative;
       }
       setModel(m); setFlat(null); setFid(null); setGenInfo(info);
+      announce('Generative tapestry ready.', 'ok');
     } catch (e){
       setBusy('');
-      alert(e.message);
+      announce(e.message || 'Generate failed.', 'err');
       return;
     }
     setBusy('');
@@ -224,112 +242,200 @@ export default function App(){
   };
 
   const yarnBar = model && (
-    <div className="swatches">{model.palette.map((y,i) =>
-      <i key={i} style={{background:`rgb(${y.rgb})`, flex:Math.max(0.05,y.share)}}
-         title={`${y.role} · ${(y.share*100).toFixed(1)}%`}/>)}</div>);
+    <div className="swatches" role="img" aria-label="Yarn share swatches">
+      {model.palette.map((y,i) =>
+        <i key={i} style={{background:`rgb(${y.rgb})`, flex:Math.max(0.05,y.share)}}
+           title={`${y.role} · ${(y.share*100).toFixed(1)}%`}/>)}
+    </div>);
+
+  const threadsLabel = cols > 0 ? String(cols) : 'Auto';
+  const photoHint = !src
+    ? 'Open or drop a photograph of cloth. Next you will mark the four corners.'
+    : !flat
+      ? 'Drag the corner handles onto the cloth edges, then Flatten to straighten the weave.'
+      : 'Flattened cloth is ready. Adjust yarns if needed, then Process.';
+  const modelHint = !flat
+    ? 'Appears after Flatten — the rectified cloth used to build the weave model.'
+    : !model
+      ? 'Ready to weave. Process builds the yarn model and tapestry.'
+      : null;
+  const genEmptyHint = !dbUp
+    ? { title: 'Database offline', body: 'Start the studio server to load rug profiles, or Generate with the default style.' }
+    : { title: 'No saved rugs yet', body: 'In Photo mode, weave a tapestry and Save profile — then select it here as a style prior.' };
 
   return (
     <div className="app">
       <header>
-        <h1>Albers Studio</h1>
-        <span className="sub">{mode === 'photo'
-          ? 'photograph → layered weave model → tapestry'
-          : 'environment + rug style → generative tapestry'}</span>
-        <div className="vtoggle modes">
-          <button className={mode==='photo'?'on':''} onClick={()=>setMode('photo')}>Photo</button>
-          <button className={mode==='generate'?'on':''} onClick={()=>setMode('generate')}>Generate</button>
+        <div className="brand">
+          <h1>Albers Studio</h1>
+          <p className="sub">{mode === 'photo'
+            ? 'Photograph → layered weave model → tapestry'
+            : 'Environment + rug style → generative tapestry'}</p>
         </div>
-        <div className="vtoggle">
-          {Object.keys(RENDERERS).map(v =>
-            <button key={v} className={v===version?'on':''} onClick={()=>setVersion(v)}>{v}</button>)}
+        <div className="header-controls">
+          <div className="vtoggle modes" role="group" aria-label="Studio mode">
+            <button type="button" className={mode==='photo'?'on':''}
+                    aria-pressed={mode==='photo'}
+                    onClick={()=>setMode('photo')}>Photo</button>
+            <button type="button" className={mode==='generate'?'on':''}
+                    aria-pressed={mode==='generate'}
+                    onClick={()=>setMode('generate')}>Generate</button>
+          </div>
         </div>
       </header>
-      <div className="vnote">{RENDERERS[version].note}
-        <span className="db">{dbUp ? ' · db connected' : ' · db offline (start: node server.js) — saves fall back to JSON'}</span>
+
+      <div className="vmeta">
+        <div className="vnote">
+          Renderer <strong>{version}</strong>
+          {version === 'V2' ? ' · draft-based (jacquard-style)' : ` · ${RENDERERS[version].note}`}
+          <span className={'db'+(dbUp?'':' warn')}>
+            {dbUp ? ' · database connected' : ' · database offline — saves download as JSON'}
+          </span>
+        </div>
+        <details className="adv-render" open={showArchived || version !== 'V2'}
+                 onToggle={e=>setShowArchived(e.target.open)}>
+          <summary>Archived renderers</summary>
+          <div className="vtoggle" role="group" aria-label="Renderer version">
+            {Object.keys(RENDERERS).map(v =>
+              <button type="button" key={v} className={v===version?'on':''}
+                      aria-pressed={v===version}
+                      onClick={()=>setVersion(v)}>{v}</button>)}
+          </div>
+        </details>
+      </div>
+
+      <div className="status" role="status" aria-live="polite" data-tone={status.tone || 'ok'}>
+        {busy || status.text || '\u00a0'}
       </div>
 
       <div className="cols3">
         {mode === 'photo' ? (
-          <section>
-            <div className="plabel">1 · Source & corners</div>
-            <div className={'stage'+(src?'':' empty')}
+          <section aria-labelledby="step-source">
+            <h2 id="step-source" className="plabel">1 · Source & corners</h2>
+            <p className="step-hint">{photoHint}</p>
+            <div className={'stage'+(src?'':'')}
+                 role={src ? undefined : 'button'}
+                 tabIndex={src ? undefined : 0}
+                 aria-label={src ? undefined : 'Open image'}
                  onClick={e=>{ if(!src) fileRef.current.click(); }}
+                 onKeyDown={e=>{ if(!src && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); fileRef.current.click(); }}}
                  onDragOver={e=>e.preventDefault()}
                  onDrop={e=>{e.preventDefault(); loadFile(e.dataTransfer.files[0]);}}>
-              {src && <canvas ref={srcCvs}
-                onPointerDown={e=>{ const [x,y]=toImg(e);
-                  let b=-1,bd=1e9; quad.forEach(([qx,qy],i)=>{const d=Math.hypot(qx-x,qy-y); if(d<bd){bd=d;b=i;}});
-                  if (bd < Math.max(28, src.w/26)){ drag.current=b; e.target.setPointerCapture(e.pointerId); } }}
-                onPointerMove={e=>{ if(drag.current<0) return; const [x,y]=toImg(e);
-                  setQuad(q=>q.map((p,i)=>i===drag.current?[Math.max(0,Math.min(src.w,x)),Math.max(0,Math.min(src.h,y))]:p)); }}
-                onPointerUp={()=>{ drag.current=-1; }}/>}
+              {!src && <div className="stage-empty">
+                <strong>Drop an image</strong>
+                <span>or use Open image — then drag corners to the cloth</span>
+              </div>}
+              {src && <canvas ref={srcCvs} className="edit" aria-label="Source with corner handles"/>}
             </div>
             <div className="bar">
               <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
                      onChange={e=>loadFile(e.target.files[0])}/>
-              <button onClick={()=>fileRef.current.click()}>Open image</button>
-              <button disabled={!src} onClick={doFlatten}>Flatten</button>
+              <button type="button" onClick={()=>fileRef.current.click()}>Open image</button>
+              <button type="button" className={src && !flat ? 'primary' : ''}
+                      disabled={!src} onClick={doFlatten}
+                      title="Warp the photo so the marked rectangle becomes flat cloth">
+                Flatten
+              </button>
             </div>
           </section>
         ) : (
-          <section>
-            <div className="plabel">1 · Environment</div>
+          <section aria-labelledby="step-env">
+            <h2 id="step-env" className="plabel">1 · Environment</h2>
+            <p className="step-hint">
+              Climate readings tint palette and density. Start with defaults, then nudge.
+            </p>
             <div className="stage env-panel">
               {ENV_FIELDS.map(f =>
                 <label key={f.key} className="env-row">
                   <span>{f.label}</span>
                   <input type="range" min={f.min} max={f.max} step={f.step}
                          value={env[f.key]}
+                         aria-valuetext={String(env[f.key])}
                          onChange={e=>setEnv(v => ({...v, [f.key]:+e.target.value}))}/>
                   <em>{Number(env[f.key]).toFixed(f.step < 1 ? 2 : 0)}</em>
                 </label>)}
             </div>
             <div className="bar">
               <label>Seed <input type="number" min="0" max="999999" value={genSeed}
+                     aria-label="Generation seed"
                      onChange={e=>setGenSeed(+e.target.value||0)}/></label>
-              <button onClick={()=>setEnv({...ENV_DEFAULTS})}>Reset env</button>
+              <button type="button" onClick={()=>setEnv({...ENV_DEFAULTS})}>Reset env</button>
             </div>
           </section>
         )}
 
-        <section>
-          <div className="plabel">{mode === 'photo' ? '2 · Model' : '2 · Style from rugs'}</div>
+        <section aria-labelledby="step-model">
+          <h2 id="step-model" className="plabel">
+            {mode === 'photo' ? '2 · Model' : '2 · Style from rugs'}
+          </h2>
           {mode === 'photo' ? (
             <>
-              <div className={'stage'+(flat?'':' empty')}>
-                {flat && <canvas ref={c=>{ if(c) imgToCanvas(flat,c); }}/>}
+              {modelHint && <p className="step-hint">{modelHint}</p>}
+              <div className="stage">
+                {!flat && <div className="stage-empty">
+                  <strong>Waiting for Flatten</strong>
+                  <span>Rectified cloth appears here after step 1</span>
+                </div>}
+                {flat && <canvas className="view" ref={c=>{ if(c) imgToCanvas(flat,c); }}
+                                 aria-label="Flattened cloth"/>}
               </div>
               <div className="bar">
                 <label>Yarns <input type="range" min="2" max="10" value={k}
+                       aria-valuetext={`${k} yarns`}
                        onChange={e=>setK(+e.target.value)}/> {k}</label>
-                <label>Threads <input type="number" min="0" max="300" value={cols} placeholder="auto"
-                       onChange={e=>setCols(+e.target.value)} title="0 = auto from measured pitch"/></label>
-                <button disabled={!flat} onClick={doProcess}>{busy||'Process'}</button>
+                <label>Threads
+                  <input type="number" min="0" max="300" value={cols}
+                         aria-label="Thread count; 0 means auto from pitch"
+                         onChange={e=>setCols(+e.target.value)}/>
+                  <span className="threads-val">{threadsLabel}</span>
+                </label>
+                <button type="button" className={flat && !model ? 'primary' : ''}
+                        disabled={!flat} onClick={doProcess}>
+                  {busy==='weaving…' ? busy : 'Process'}
+                </button>
               </div>
             </>
           ) : (
             <>
-              <div className={'stage'+(profiles.length?'':' empty gen-empty')}>
+              <div className="stage">
+                {profiles.length === 0 && <div className="stage-empty">
+                  <strong>{genEmptyHint.title}</strong>
+                  <span>{genEmptyHint.body}</span>
+                </div>}
                 {profiles.length > 0 && <div className="style-list">
-                  <p className="hint">Select one or more saved rugs — their fingerprints
-                    (gauge, palette, floats, spatial priors) steer the generative weave.
-                    None selected → built-in default style.</p>
+                  {!dbUp
+                    ? <p className="hint warn">Database offline — rug styles cannot steer Generate.
+                        Start the server, or continue with the built-in default style.</p>
+                    : <p className="hint">Select saved rugs to steer gauge, palette, and floats.
+                        None selected → built-in default style.</p>}
                   {profiles.map(p =>
-                    <label key={p.id} className={'style-item'+(styleIds.includes(p.id)?' on':'')}>
+                    <label key={p.id}
+                           className={'style-item'
+                             +(styleIds.includes(p.id)?' on':'')
+                             +(!dbUp?' disabled':'')}>
                       <input type="checkbox" checked={styleIds.includes(p.id)}
+                             disabled={!dbUp}
                              onChange={()=>toggleStyle(p.id)}/>
                       <span>{p.name}</span>
                       <em>{p.cols}×{p.rows} · {p.yarns}y</em>
-                      <button type="button" className="tiny" onClick={e=>{e.preventDefault(); loadProfile(p.id);}}>
-                        peek
+                      <button type="button" className="tiny" disabled={!dbUp}
+                              title="Load this profile into the tapestry stage"
+                              onClick={e=>{e.preventDefault(); loadProfile(p.id);}}>
+                        Open
                       </button>
                     </label>)}
                 </div>}
               </div>
               <div className="bar">
-                <label>Threads <input type="number" min="0" max="300" value={cols} placeholder="auto"
-                       onChange={e=>setCols(+e.target.value)} title="0 = use fingerprint gauge"/></label>
-                <button onClick={doGenerate}>{busy||'Generate'}</button>
+                <label>Threads
+                  <input type="number" min="0" max="300" value={cols}
+                         aria-label="Thread count; 0 means fingerprint gauge"
+                         onChange={e=>setCols(+e.target.value)}/>
+                  <span className="threads-val">{threadsLabel}</span>
+                </label>
+                <button type="button" className="primary" onClick={doGenerate}>
+                  {busy==='generating…' ? busy : 'Generate'}
+                </button>
               </div>
             </>
           )}
@@ -343,31 +449,52 @@ export default function App(){
             {yarnBar}
             {model.palette.map((y,i) =>
               <div key={i} className="yline">
-                <i style={{background:`rgb(${y.rgb})`}}/> {y.role} · {(y.share*100).toFixed(1)}%
+                <i style={{background:`rgb(${y.rgb})`}} aria-hidden="true"/> {y.role} · {(y.share*100).toFixed(1)}%
                 {model.structure.floats[i] && <> · floats {model.structure.floats[i].mean.toFixed(1)}/{model.structure.floats[i].max}</>}
               </div>)}
           </div>}
         </section>
 
-        <section>
-          <div className="plabel">3 · Tapestry — {version}</div>
-          <div ref={outBox} className={'stage grow'+(model?'':' empty')}>
-            {model && <canvas ref={outCvs}/>}
+        <section className="exports" aria-labelledby="step-tapestry">
+          <h2 id="step-tapestry" className="plabel">3 · Tapestry — {version}</h2>
+          <p className="step-hint">
+            {model ? 'Export the weave or save a reusable profile.' : 'The finished tapestry appears here after Process or Generate.'}
+          </p>
+          <div ref={outBox} className="stage grow">
+            {!model && <div className="stage-empty">
+              <strong>No tapestry yet</strong>
+              <span>Complete steps 1–2 to weave</span>
+            </div>}
+            {model && <canvas ref={outCvs} className="view" aria-label="Rendered tapestry"/>}
           </div>
           <div className="bar">
-            <button disabled={!model} onClick={savePng}>PNG</button>
-            <button disabled={!model} onClick={saveSvg}>SVG (layers)</button>
-            <button disabled={!model || !model.draft} onClick={saveDraft}>Draft</button>
-            <button disabled={!model} onClick={saveProfile}>Save profile</button>
+            <div className="save-row">
+              <label className="save-row">
+                Profile name
+                <input type="text" value={profileName}
+                       disabled={!model}
+                       onChange={e=>setProfileName(e.target.value)}
+                       aria-label="Profile name"/>
+              </label>
+              <button type="button" className="primary" disabled={!model} onClick={saveProfile}>
+                Save profile
+              </button>
+            </div>
+            <button type="button" disabled={!model} onClick={savePng}>PNG</button>
+            <button type="button" disabled={!model} onClick={saveSvg}>SVG</button>
+            <button type="button" disabled={!model || !model.draft} onClick={saveDraft}
+                    title={!model?.draft ? 'Draft export needs a draft-capable model' : 'Export lift draft'}>
+              Draft
+            </button>
           </div>
           {fid && <div className="readout">
             fidelity: mean dE {fid.mean.toFixed(1)} · band r {fid.rows.toFixed(3)}
           </div>}
           {profiles.length > 0 && mode === 'photo' && <div className="readout">
-            <b>Profiles</b>
+            <b>Saved profiles</b>
             {profiles.map(p =>
               <div key={p.id} className="yline">
-                <button className="tiny" onClick={()=>loadProfile(p.id)}>load</button>
+                <button type="button" className="tiny" onClick={()=>loadProfile(p.id)}>Open</button>
                 &nbsp;{p.name} · {p.cols}×{p.rows} · {p.yarns} yarns
               </div>)}
           </div>}

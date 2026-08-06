@@ -5,58 +5,94 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Albers Studio</title>
 <style>
-  :root{ --paper:#dcd6c8; --ink:#1c1a17; --rule:rgba(28,26,23,.3); }
+  :root{
+    --paper:#dcd6c8; --ink:#1c1a17; --rule:rgba(28,26,23,.3);
+    --stage:#c9c1b0; --focus:#1c1a17;
+  }
   *{box-sizing:border-box}
   body{ margin:0; background:var(--paper); color:var(--ink);
-    font:12px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif; letter-spacing:.05em; }
-  .app{ padding:clamp(12px,2vw,24px); display:flex; flex-direction:column; gap:10px; min-height:100vh; }
-  header{ display:flex; gap:16px; align-items:baseline; border-bottom:1px solid var(--rule); padding-bottom:8px; }
-  h1{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.26em; margin:0 }
-  .sub{ opacity:.6 }
-  .vtoggle{ margin-left:auto; display:flex; gap:0 }
-  .vtoggle.modes{ margin-left:auto; margin-right:12px }
-  .vtoggle button{ border:1px solid var(--ink); border-left-width:0; padding:5px 12px;
-    background:transparent; color:var(--ink); font:inherit; letter-spacing:.14em; cursor:pointer }
+    font:14px/1.45 "Helvetica Neue",Helvetica,Arial,sans-serif; letter-spacing:.04em; }
+  .app{ padding:clamp(12px,2vw,24px); display:flex; flex-direction:column; gap:12px; min-height:100vh; }
+  header{ display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end;
+    border-bottom:1px solid var(--rule); padding-bottom:10px; }
+  .brand{ display:flex; flex-direction:column; gap:4px; min-width:min(100%,220px); }
+  h1{ font-size:22px; font-weight:700; text-transform:uppercase; letter-spacing:.22em; margin:0;
+    line-height:1.15; }
+  .sub{ font-size:14px; opacity:.7; letter-spacing:.06em; max-width:42ch; }
+  .header-controls{ margin-left:auto; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .vtoggle{ display:flex; gap:0 }
+  .vtoggle button{ border:1px solid var(--ink); border-left-width:0; padding:6px 12px;
+    background:transparent; color:var(--ink); font:inherit; letter-spacing:.12em; cursor:pointer }
   .vtoggle button:first-child{ border-left-width:1px }
   .vtoggle button.on{ background:var(--ink); color:var(--paper) }
-  .vnote{ font-size:10px; opacity:.55; text-align:right }
-  .db{ opacity:.8 }
+  .vtoggle button:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  summary:focus-visible{
+    outline:2px solid var(--focus); outline-offset:2px;
+  }
+  .vmeta{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; justify-content:space-between;
+    font-size:14px; }
+  .vnote{ opacity:.7 }
+  .db{ opacity:.85 }
+  .db.warn{ color:var(--ink); font-weight:600; opacity:1 }
+  .adv-render{ font-size:14px; opacity:.8 }
+  .adv-render summary{ cursor:pointer; letter-spacing:.1em; text-transform:uppercase; list-style-position:outside }
+  .adv-render[open] summary{ margin-bottom:6px }
+  .adv-render .vtoggle button{ padding:4px 10px; font-size:14px }
+  .status{ min-height:1.2em; font-size:14px; letter-spacing:.06em; }
+  .status[data-tone="ok"]{ opacity:.85 }
+  .status[data-tone="warn"]{ font-weight:600 }
+  .status[data-tone="err"]{ font-weight:700 }
   .cols3{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; flex:1 }
   section{ display:flex; flex-direction:column; gap:8px; min-width:0 }
-  .plabel{ text-transform:uppercase; letter-spacing:.2em; font-size:9px; opacity:.55 }
-  .stage{ position:relative; background:#c9c1b0; padding:8px; min-height:200px; flex:0 0 auto;
+  .plabel{ text-transform:uppercase; letter-spacing:.16em; font-size:11px; opacity:.65; margin:0 }
+  .step-hint{ font-size:14px; line-height:1.45; letter-spacing:.03em; opacity:.75; margin:0;
+    text-transform:none; max-width:42ch }
+  .stage{ position:relative; background:var(--stage); padding:8px; min-height:200px; flex:0 0 auto;
     display:flex; align-items:flex-start; justify-content:center;
     box-shadow:0 1px 0 rgba(255,255,255,.45) inset }
   .stage.grow{ flex:1 1 auto }
-  .stage canvas{ display:block; max-width:100%; height:auto; cursor:crosshair }
-  .stage.empty::after{ content:'drop an image'; position:absolute; inset:0; display:flex;
-    align-items:center; justify-content:center; opacity:.4; text-transform:uppercase;
-    letter-spacing:.18em; font-size:10px }
-  .stage.empty.gen-empty::after{ content:'save a photo profile first' }
+  .stage canvas{ display:block; max-width:100%; height:auto }
+  .stage canvas.edit{ cursor:crosshair }
+  .stage canvas.view{ cursor:default }
+  .stage-empty{ position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:6px; padding:16px; text-align:center;
+    pointer-events:none; }
+  .stage-empty strong{ font-size:14px; letter-spacing:.14em; text-transform:uppercase; font-weight:700 }
+  .stage-empty span{ font-size:14px; opacity:.7; letter-spacing:.03em; max-width:28ch; line-height:1.4 }
   .bar{ display:flex; flex-wrap:wrap; gap:6px; align-items:center }
-  button,input[type=number]{ font:inherit; letter-spacing:.12em; text-transform:uppercase;
-    background:transparent; color:var(--ink); border:1px solid var(--ink); padding:5px 10px; cursor:pointer }
+  button,input[type=number],input[type=text]{ font:inherit; letter-spacing:.1em; text-transform:uppercase;
+    background:transparent; color:var(--ink); border:1px solid var(--ink); padding:6px 11px; cursor:pointer }
+  input[type=text]{ text-transform:none; letter-spacing:.04em; cursor:text; min-width:140px }
   button:hover:not(:disabled){ background:var(--ink); color:var(--paper) }
   button:disabled{ opacity:.3; cursor:default }
-  button.tiny{ padding:1px 6px; font-size:9px }
-  label{ display:flex; align-items:center; gap:6px; font-size:10px; text-transform:uppercase; opacity:.75 }
+  button.primary{ background:var(--ink); color:var(--paper) }
+  button.primary:hover:not(:disabled){ opacity:.88 }
+  button.tiny{ padding:2px 7px; font-size:11px }
+  label{ display:flex; align-items:center; gap:6px; font-size:14px; text-transform:uppercase; opacity:.8 }
   input[type=range]{ width:80px; accent-color:#1c1a17 }
-  input[type=number]{ width:60px; text-transform:none; cursor:text }
-  .readout{ font-size:10px; opacity:.75; border-top:1px solid var(--rule); padding-top:6px;
+  input[type=number]{ width:64px; text-transform:none; cursor:text }
+  .threads-val{ min-width:2.5em; font-variant-numeric:tabular-nums; opacity:.75; text-transform:none }
+  .readout{ font-size:14px; opacity:.8; border-top:1px solid var(--rule); padding-top:6px;
     line-height:1.7; font-variant-numeric:tabular-nums }
   .swatches{ display:flex; height:14px; margin:4px 0; max-width:280px }
   .yline{ display:flex; align-items:center; gap:6px }
-  .yline i{ width:11px; height:11px; display:inline-block; border:1px solid rgba(0,0,0,.2) }
+  .yline i{ width:12px; height:12px; display:inline-block; border:1px solid rgba(0,0,0,.25) }
   .env-panel{ flex-direction:column; align-items:stretch; gap:8px; padding:14px 16px; min-height:240px }
   .env-row{ display:grid; grid-template-columns:88px 1fr 42px; gap:8px; width:100%; opacity:1 }
   .env-row em{ font-style:normal; text-align:right; font-variant-numeric:tabular-nums; opacity:.7 }
   .env-row input[type=range]{ width:100% }
   .style-list{ width:100%; display:flex; flex-direction:column; gap:6px; padding:4px }
-  .style-list .hint{ margin:0 0 6px; opacity:.65; text-transform:none; letter-spacing:.04em; line-height:1.5 }
+  .style-list .hint{ margin:0 0 6px; opacity:.7; text-transform:none; letter-spacing:.03em; line-height:1.5 }
+  .style-list .hint.warn{ font-weight:600; opacity:.9 }
   .style-item{ display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; align-items:center;
-    padding:6px 8px; border:1px solid transparent; text-transform:none; letter-spacing:.06em; opacity:1 }
+    padding:6px 8px; border:1px solid transparent; text-transform:none; letter-spacing:.04em; opacity:1 }
   .style-item.on{ border-color:var(--ink); background:rgba(28,26,23,.06) }
-  .style-item em{ opacity:.55; font-style:normal; font-size:9px }
+  .style-item.disabled{ opacity:.45 }
+  .style-item em{ opacity:.55; font-style:normal; font-size:11px }
+  .exports .bar{ gap:8px }
+  .save-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; flex:1 }
 </style>
 </head>
 <body>
