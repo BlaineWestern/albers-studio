@@ -1,7 +1,8 @@
 # Albers Studio
 
 Photograph → layered weave model → tapestry. React app, versioned renderers,
-SQLite profiles.
+SQLite profiles. Also: environment readings + rug fingerprints → generative
+tapestry.
 
 ## Run
 
@@ -21,8 +22,13 @@ To rebuild after editing source: `npm install && npm run build`.
       └─ structure  per-role weave structures → binary draft (jacquard-style)
       └─ render     V1 / V1.2 (archived) · V2 (draft-derived)
 
+    environment + rug fingerprint
+      └─ fingerprint  gauge, palette Labs, role mix, floats, spatial priors
+      └─ generative   env modulators → indexmap → same model / draft / render
+
 Renderers only see the model — never the photograph. A saved profile
 (config JSON in SQLite) re-renders bit-identically without the source image.
+Fingerprints extracted from those profiles steer generative weaves.
 
 ## Versions (top-right toggle)
 
@@ -32,6 +38,22 @@ Renderers only see the model — never the photograph. A saved profile
   is derived from the binary draft a TC2-class loom could read. Export the
   draft itself with the Draft button.
 
+## Generative / environment API
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/configs/:id/fingerprint` | Extract style prior from a saved rug |
+| `POST /api/fingerprint` | Fingerprint an inline config and/or blend `profileIds` |
+| `POST /api/generate` | `{ env, profileIds?, seed?, cols?, save? }` → config |
+| `GET /api/generate/defaults` | Env schema + default fingerprint |
+
+Env fields: `temperature` (°C), `humidity` (%), `wind` (m/s),
+`precipitation` (mm), `light` (0–1), `season` (0–1). These tint palette Labs,
+reshape mark/field density, and stretch spatial anisotropy while the selected
+rug fingerprint(s) supply gauge, yarns, structures, and float priors.
+
+UI: header **Photo | Generate** mode switch.
+
 ## Exports
 
 PNG (raster) · SVG with one layer per yarn (Illustrator/Inkscape layer
@@ -40,8 +62,9 @@ warp up) · Profile JSON → SQLite.
 
 ## Tests
 
-    node test/run.mjs
+    npm test                # unit + API integration
+    npm run test:unit       # pipeline / generative only
+    npm run test:api        # HTTP routes against a throwaway server
 
-Runs the fuzzy suite against the real Pasture photograph: model shape,
-three renderers, responsive equivalence, config round-trip, SVG layer
-structure, draft sanity.
+Unit suite uses a synthetic woven fixture (always available). If
+`/tmp/fx/pasture.raw` exists, an extra real-photo fidelity gate runs too.
